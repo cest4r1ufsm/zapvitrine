@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("business")
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+  store     Store?
+}
+
+model Store {
+  id            Int        @id @default(autoincrement())
+  userId        Int        @unique
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  slug          String     @unique
+  description   String?
+  phone         String
+  address       String?
+  logoUrl       String?
+  bannerUrl     String?
+  themeColor    String     @default("#6C63FF")
+  businessHours String?
+  active        Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  categories    Category[]
+  products      Product[]
+  orders        Order[]
+
+  // Chatbot configuration
+  botEnabled      Boolean  @default(false)
+  botGreeting     String?  // Mensagem de boas-vindas
+  botAwayMessage  String?  // Mensagem fora do horário
+  botPhoneId      String?  // WhatsApp Business Phone Number ID
+  botToken        String?  // WhatsApp Cloud API Token
+  botWebhookToken String?  // Token de verificação do webhook
+}
+
+model Category {
+  id       Int       @id @default(autoincrement())
+  storeId  Int
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name     String
+  order    Int       @default(0)
+  products Product[]
+}
+
+model Product {
+  id          Int       @id @default(autoincrement())
+  storeId     Int
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId  Int?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+  active      Boolean   @default(true)
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  orders      Order[]
+}
+
+model Order {
+  id              Int       @id @default(autoincrement())
+  storeId         Int
+  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId       Int?
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  customerName    String
+  customerPhone   String
+  customerAddress String?
+  scheduledTime   String?   // horário desejado ex: "Amanhã às 14h"
+  notes           String?   // observações adicionais
+  status          String    @default("pending") // pending, confirmed, completed, cancelled
+  totalPrice      Float?
+  createdAt       DateTime  @default(now())
+}
+

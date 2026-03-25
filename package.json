@@ -1,0 +1,11 @@
+{
+  "name": "zapvitrine",
+  "version": "1.0.0",
+  "description": "ZapVitrine - Catálogo Digital com WhatsApp",
+  "scripts": {
+    "install:all": "cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build",
+    "start": "cd server && node src/index.js",
+    "postinstall": "npm run install:all && npm run build && cd server && npx prisma db push"
+  }
+}
