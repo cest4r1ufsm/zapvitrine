@@ -1,7 +1,7 @@
 {
-  "name": "zapvitrine",
+  "name": "pedidoprontobot",
   "version": "1.0.0",
-  "description": "ZapVitrine - Catálogo Digital com WhatsApp",
+  "description": "Pedido Pronto Bot - Catálogo Digital com WhatsApp",
   "scripts": {
     "install:all": "cd client && npm install && cd ../server && npm install",
     "build": "cd client && npm run build",
