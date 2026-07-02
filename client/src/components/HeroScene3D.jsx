@@ -103,11 +103,11 @@ float softShadow(vec3 ro, vec3 rd, float k) {
 vec3 tileColor(float id) {
   if (id < 0.5) return TILE_BASE; // ground - unused, handled separately
   if (id < 1.5) return TILE_BASE;
-  if (id < 2.5) return mix(TILE_BASE, TILE_ACCENT, 0.18);
+  if (id < 2.5) return mix(TILE_BASE, TILE_ACCENT, 0.06);
   if (id < 3.5) return TILE_BASE;
   if (id < 4.5) return mix(TILE_BASE, TILE_LIME, 0.35);
   if (id < 5.5) return TILE_BASE;
-  return TILE_ACCENT;
+  return mix(TILE_BASE, TILE_ACCENT, 0.20);
 }
 
 void main() {
