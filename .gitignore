@@ -4,4 +4,31 @@ dist/
 *.db
 *.db-journal
 uploads/
+sessions/
 .DS_Store
+
+# Logs e arquivos temporários
+*.log
+tunnel.log
+dev-server.log
+dev-server-err.log
+preview.log
+
+# Arquivos de mídia e referência (não fazem parte do app)
+*.mp4
+*.rar
+natalie-frames/
+ref-frames/
+Branding/
+Videos Ref/
+
+# Configurações do editor/assistente
+.claude/
+.agents/
+
+# Artefatos de deploy
+deploy.tar.gz
+deploy.zip
+
+# Submodulos externos
+html-in-canvas/
