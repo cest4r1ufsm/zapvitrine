@@ -85,8 +85,6 @@ void main() {
   float b3 = blob(wuv, c3, 0.58);
   float b4 = blob(wuv, c4, 0.48);
   float b5 = blob(wuv, c5, 0.55);
-  float bm = blob(uv,  m,  0.36);
-
   // Soft vertical fade
   float topFade = smoothstep(0.0, 0.7, v_uv.y);
 
@@ -96,7 +94,6 @@ void main() {
   col = mix(col, LIME,   b2 * 0.32);
   col = mix(col, PURPLE, b3 * 0.38);
   col = mix(col, LIME,   b4 * 0.28 * topFade);
-  col = mix(col, PURPLE, bm * 0.40);
 
   // Soft "breathing" pulse: very slow global brightness wobble
   col *= 0.97 + 0.03 * sin(t * 0.8);
