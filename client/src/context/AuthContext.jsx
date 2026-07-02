@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('zapvitrine_token');
+    const token = localStorage.getItem('pedidoprontobot_token');
     if (token) {
       authAPI.me()
         .then((data) => {
@@ -17,7 +17,7 @@ export function AuthProvider({ children }) {
           setStore(data.store);
         })
         .catch(() => {
-          localStorage.removeItem('zapvitrine_token');
+          localStorage.removeItem('pedidoprontobot_token');
         })
         .finally(() => setLoading(false));
     } else {
@@ -27,24 +27,22 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const data = await authAPI.login({ email, password });
-    localStorage.setItem('zapvitrine_token', data.token);
+    localStorage.setItem('pedidoprontobot_token', data.token);
     setUser(data.user);
     const meData = await authAPI.me();
     setStore(meData.store);
     return data;
   };
 
+  // Register no longer auto-logs in — requires email verification
   const register = async (name, email, password) => {
     const data = await authAPI.register({ name, email, password });
-    localStorage.setItem('zapvitrine_token', data.token);
-    setUser(data.user);
-    const meData = await authAPI.me();
-    setStore(meData.store);
+    // data = { requiresVerification: true, message: '...' }
     return data;
   };
 
   const logout = () => {
-    localStorage.removeItem('zapvitrine_token');
+    localStorage.removeItem('pedidoprontobot_token');
     setUser(null);
     setStore(null);
   };
