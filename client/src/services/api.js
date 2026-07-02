@@ -1,8 +1,8 @@
 const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_URL = isDev ? 'http://localhost:3001/api' : '/api';
+export const API_URL = isDev ? 'http://localhost:3001/api' : '/api';
 
 function getToken() {
-  return localStorage.getItem('zapvitrine_token');
+  return localStorage.getItem('pedidoprontobot_token');
 }
 
 function authHeaders() {
@@ -48,6 +48,10 @@ export const authAPI = {
   register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   me: () => request('/auth/me'),
+  verifyEmail: (token) => request(`/auth/verify-email?token=${token}`),
+  resendVerification: (email) => request('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }),
+  forgotPassword: (email) => request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token, password) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
 };
 
 // Store
@@ -97,4 +101,20 @@ export const ordersAPI = {
   delete: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
 };
 
+// WhatsApp
+export const whatsappAPI = {
+  connect: () => request('/whatsapp/connect', { method: 'POST' }),
+  status: () => request('/whatsapp/status'),
+  disconnect: () => request('/whatsapp/disconnect', { method: 'POST' }),
+};
+
 export const UPLOADS_URL = isDev ? 'http://localhost:3001' : '';
+
+const api = {
+  get: (endpoint) => request(endpoint),
+  post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+  patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
+};
+
+export default api;
