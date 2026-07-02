@@ -1,30 +1,39 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { storeAPI, categoriesAPI, productsAPI, adminAPI, ordersAPI, UPLOADS_URL } from '../services/api';
+import { storeAPI, categoriesAPI, productsAPI, adminAPI, ordersAPI, whatsappAPI, UPLOADS_URL } from '../services/api';
+import BillingPage from './BillingPage';
+import ProfessionalsPage from './ProfessionalsPage';
+import BlockedSlotsPage from './BlockedSlotsPage';
+import ClientsPage from './ClientsPage';
+import AgendaPage from './AgendaPage';
+import OnboardingModal, { useOnboarding, STORAGE_KEY as ONBOARDING_KEY } from './OnboardingModal';
+import PageGuide from '../components/PageGuide';
 
 function Sidebar({ open, onClose }) {
   const { user, store, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
-  const [theme, setTheme] = useState(() => localStorage.getItem('zapvitrine_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('pedidoprontobot_theme') || 'light');
 
   const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('zapvitrine_theme', next);
+    localStorage.setItem('pedidoprontobot_theme', next);
     setTheme(next);
   };
 
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="sidebar-header">
-        <h1>⚡ ZapVitrine</h1>
-        <p>{store?.name || 'Minha Loja'}</p>
+        <Link to="/" className="sidebar-logo-link">
+          <img src="/agtgestor-logo.svg" alt="AGTGestor" className="sidebar-logo-img" />
+        </Link>
+        <p>{store?.name || 'Minha Agenda'}</p>
       </div>
       <nav className="sidebar-nav">
-        <Link to="/dashboard" className={`sidebar-link${isActive('/dashboard') && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/produtos') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
+        <Link to="/dashboard" className={`sidebar-link${isActive('/dashboard') && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/servicos') && !isActive('/dashboard/agenda') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon">🏠</span> Início
         </Link>
         <Link to="/dashboard/loja" className={`sidebar-link${isActive('/dashboard/loja') ? ' active' : ''}`} onClick={onClose}>
@@ -33,14 +42,29 @@ function Sidebar({ open, onClose }) {
         <Link to="/dashboard/categorias" className={`sidebar-link${isActive('/dashboard/categorias') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon">📁</span> Categorias
         </Link>
-        <Link to="/dashboard/produtos" className={`sidebar-link${isActive('/dashboard/produtos') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">📦</span> Produtos
+        <Link to="/dashboard/servicos" className={`sidebar-link${isActive('/dashboard/servicos') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">🛠️</span> Serviços
+        </Link>
+        <Link to="/dashboard/agenda" className={`sidebar-link${isActive('/dashboard/agenda') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">📅</span> Agenda
         </Link>
         <Link to="/dashboard/chatbot" className={`sidebar-link${isActive('/dashboard/chatbot') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon">🤖</span> Chatbot
         </Link>
         <Link to="/dashboard/pedidos" className={`sidebar-link${isActive('/dashboard/pedidos') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon">📊</span> Pedidos
+        </Link>
+        <Link to="/dashboard/profissionais" className={`sidebar-link${isActive('/dashboard/profissionais') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">👥</span> Profissionais
+        </Link>
+        <Link to="/dashboard/bloqueios" className={`sidebar-link${isActive('/dashboard/bloqueios') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">🚫</span> Bloqueios
+        </Link>
+        <Link to="/dashboard/clientes" className={`sidebar-link${isActive('/dashboard/clientes') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">📇</span> Clientes
+        </Link>
+        <Link to="/dashboard/billing" className={`sidebar-link${isActive('/dashboard/billing') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon">💳</span> Assinatura
         </Link>
         {user?.role === 'admin' && (
           <Link to="/dashboard/admin" className={`sidebar-link${isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
@@ -61,15 +85,62 @@ function Sidebar({ open, onClose }) {
   );
 }
 
+function OnboardingChecklist({ products, store, professionals }) {
+  const navigate = useNavigate();
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem('agtgestor_checklist_done') === 'true');
+
+  const steps = [
+    { done: !!(store?.schedulingConfig), label: 'Configurar horários de atendimento', path: '/dashboard/loja', desc: 'Defina os dias e horários que você trabalha' },
+    { done: products.length > 0, label: 'Cadastrar pelo menos um serviço', path: '/dashboard/servicos', desc: 'Adicione seus serviços com preço e duração' },
+    { done: professionals?.length > 0, label: 'Adicionar profissionais (opcional)', path: '/dashboard/profissionais', desc: 'Cadastre sua equipe para seleção no chatbot' },
+    { done: store?.botEnabled, label: 'Conectar o WhatsApp', path: '/dashboard/chatbot', desc: 'Escaneie o QR Code para ativar o chatbot' },
+  ];
+
+  const completed = steps.filter(s => s.done).length;
+  const allDone = completed === steps.length;
+
+  if (dismissed) return null;
+
+  return (
+    <div style={{ background: allDone ? '#f0fdf4' : '#f8f8ff', border: `1px solid ${allDone ? '#86efac' : '#c4b5fd'}`, borderRadius: 14, padding: '20px 24px', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>{allDone ? '🎉 Configuração completa!' : '🚀 Configure seu sistema'}</h3>
+          <p style={{ margin: 0, fontSize: 13, color: '#666' }}>{allDone ? 'Seu sistema está pronto para receber agendamentos.' : `${completed} de ${steps.length} etapas concluídas`}</p>
+        </div>
+        {allDone && <button onClick={() => { setDismissed(true); localStorage.setItem('agtgestor_checklist_done','true'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 20 }}>✕</button>}
+      </div>
+      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {steps.map((step, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', borderRadius: 10, padding: '10px 14px', border: `1px solid ${step.done ? '#86efac' : '#e5e7eb'}`, cursor: step.done ? 'default' : 'pointer' }}
+            onClick={() => !step.done && navigate(step.path)}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: step.done ? '#10b981' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14, color: step.done ? '#fff' : '#aaa', fontWeight: 700 }}>
+              {step.done ? '✓' : i + 1}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: step.done ? '#059669' : '#333', textDecoration: step.done ? 'line-through' : 'none' }}>{step.label}</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{step.desc}</div>
+            </div>
+            {!step.done && <span style={{ color: '#6C63FF', fontSize: 13, fontWeight: 600 }}>Configurar →</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DashboardHome() {
   const { store } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [professionals, setProfessionals] = useState([]);
   const [copied, setCopied] = useState(false);
+  const { show: showOnboarding, setShow: setShowOnboarding } = useOnboarding();
 
   useEffect(() => {
     productsAPI.list().then(setProducts).catch(() => {});
     categoriesAPI.list().then(setCategories).catch(() => {});
+    import('../services/api').then(m => m.default.get('/professionals').then(setProfessionals).catch(() => {}));
   }, []);
 
   const storeUrl = `${window.location.origin}/loja/${store?.slug || ''}`;
@@ -82,12 +153,18 @@ function DashboardHome() {
 
   return (
     <div>
+      {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
       <div className="page-header">
         <div>
           <h1>Olá, {store?.name || 'Lojista'}! 👋</h1>
           <p>Aqui está o resumo da sua vitrine</p>
         </div>
+        <button onClick={() => { localStorage.removeItem(ONBOARDING_KEY); setShowOnboarding(true); }}
+          style={{ background: '#f0efff', border: '1px solid #c4b5fd', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: '#6C63FF', fontWeight: 600 }}>
+          📖 Ver tutorial
+        </button>
       </div>
+      <OnboardingChecklist products={products} store={store} professionals={professionals} />
 
       <div className="store-link-card">
         <h3>🔗 Link da sua vitrine</h3>
@@ -104,9 +181,9 @@ function DashboardHome() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon">📦</div>
+          <div className="stat-icon">🛠️</div>
           <div className="stat-value">{products.length}</div>
-          <div className="stat-label">Produtos cadastrados</div>
+          <div className="stat-label">Serviços cadastrados</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon">📁</div>
@@ -116,7 +193,7 @@ function DashboardHome() {
         <div className="stat-card">
           <div className="stat-icon">✅</div>
           <div className="stat-value">{products.filter(p => p.active).length}</div>
-          <div className="stat-label">Produtos ativos</div>
+          <div className="stat-label">Serviços ativos</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon">📱</div>
@@ -130,11 +207,11 @@ function DashboardHome() {
           <h3 style={{ marginBottom: '12px' }}>🚀 Complete sua vitrine!</h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>
             {!store?.phone && 'Configure seu WhatsApp em "Minha Loja". '}
-            {products.length === 0 && 'Adicione seus primeiros produtos em "Produtos".'}
+            {products.length === 0 && 'Adicione seus primeiros serviços em "Serviços".'}
           </p>
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
             {!store?.phone && <Link to="/dashboard/loja" className="btn btn-primary">Configurar Loja</Link>}
-            {products.length === 0 && <Link to="/dashboard/produtos" className="btn btn-secondary">Adicionar Produtos</Link>}
+            {products.length === 0 && <Link to="/dashboard/servicos" className="btn btn-secondary">Adicionar Serviços</Link>}
           </div>
         </div>
       )}
@@ -144,7 +221,10 @@ function DashboardHome() {
 
 function StoreSettings() {
   const { store, refreshStore } = useAuth();
+  const DEFAULT_SCHED = { slotInterval: 30, hours: { monday:{active:true,open:'09:00',close:'18:00'}, tuesday:{active:true,open:'09:00',close:'18:00'}, wednesday:{active:true,open:'09:00',close:'18:00'}, thursday:{active:true,open:'09:00',close:'18:00'}, friday:{active:true,open:'09:00',close:'18:00'}, saturday:{active:true,open:'09:00',close:'13:00'}, sunday:{active:false,open:'09:00',close:'18:00'} } };
   const [form, setForm] = useState({ name: '', slug: '', description: '', phone: '', address: '', themeColor: '#6C63FF', businessHours: '' });
+  const [sched, setSched] = useState(DEFAULT_SCHED);
+  const DAY_NAMES = [{key:'monday',label:'Segunda'},{key:'tuesday',label:'Terça'},{key:'wednesday',label:'Quarta'},{key:'thursday',label:'Quinta'},{key:'friday',label:'Sexta'},{key:'saturday',label:'Sábado'},{key:'sunday',label:'Domingo'}];
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -160,6 +240,9 @@ function StoreSettings() {
         themeColor: store.themeColor || '#6C63FF',
         businessHours: store.businessHours || '',
       });
+      if (store.schedulingConfig) {
+        try { setSched(JSON.parse(store.schedulingConfig)); } catch {}
+      }
     }
   }, [store]);
 
@@ -169,7 +252,7 @@ function StoreSettings() {
     setError('');
     setSuccess('');
     try {
-      await storeAPI.update(form);
+      await storeAPI.update({ ...form, schedulingConfig: JSON.stringify(sched) });
       await refreshStore();
       setSuccess('Loja atualizada com sucesso!');
       setTimeout(() => setSuccess(''), 3000);
@@ -204,6 +287,14 @@ function StoreSettings() {
 
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
+
+      <PageGuide pageKey="store-settings" title="Como configurar sua loja" steps={[
+        'Preencha o <strong>nome, telefone e endereço</strong> da sua empresa nas informações básicas.',
+        'Em <strong>Configuração de Agenda</strong>, ative os dias que você atende marcando a caixinha de cada dia.',
+        'Defina o <strong>horário de início e fim</strong> de cada dia ativo — o chatbot só vai oferecer horários dentro desse intervalo.',
+        'O <strong>intervalo entre slots</strong> define o espaçamento dos horários (30 min = oferece 9:00, 9:30, 10:00... | 60 min = 9:00, 10:00, 11:00...).',
+        'Clique em <strong>Salvar Alterações</strong> no final da página para confirmar tudo.',
+      ]} color="#f59e0b" />
 
       <form onSubmit={handleSave}>
         <div className="settings-grid">
@@ -245,8 +336,40 @@ function StoreSettings() {
               <input className="form-input" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Ex: Rua das Flores, 123" />
             </div>
             <div className="form-group">
-              <label>Horário de Funcionamento</label>
-              <textarea className="form-input" value={form.businessHours} onChange={e => setForm({ ...form, businessHours: e.target.value })} placeholder="Ex: Seg-Sex: 9h às 18h&#10;Sáb: 9h às 13h" rows={3} />
+              <label>Horário de Funcionamento (descrição)</label>
+              <textarea className="form-input" value={form.businessHours} onChange={e => setForm({ ...form, businessHours: e.target.value })} placeholder="Ex: Seg-Sex: 9h às 18h&#10;Sáb: 9h às 13h" rows={2} />
+            </div>
+            <div className="form-group">
+              <label>⚙️ Configuração de Agenda (para agendamento automático)</label>
+              <div style={{ background: '#f8f8ff', border: '1px solid #e0dfff', borderRadius: 10, padding: '12px 14px', marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Intervalo entre slots:</span>
+                  <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} value={sched.slotInterval} onChange={e => setSched(s => ({ ...s, slotInterval: parseInt(e.target.value) }))}>
+                    {[15,20,30,45,60].map(v => <option key={v} value={v}>{v} min</option>)}
+                  </select>
+                </div>
+                {DAY_NAMES.map(({ key, label }) => (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: 90, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={sched.hours[key]?.active ?? false}
+                        onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], active: e.target.checked } } }))} />
+                      <span style={{ fontSize: 13, fontWeight: sched.hours[key]?.active ? 600 : 400, color: sched.hours[key]?.active ? '#333' : '#aaa' }}>{label}</span>
+                    </label>
+                    {sched.hours[key]?.active && (
+                      <>
+                        <input type="time" style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                          value={sched.hours[key]?.open || '09:00'}
+                          onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], open: e.target.value } } }))} />
+                        <span style={{ fontSize: 12, color: '#888' }}>até</span>
+                        <input type="time" style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                          value={sched.hours[key]?.close || '18:00'}
+                          onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], close: e.target.value } } }))} />
+                      </>
+                    )}
+                    {!sched.hours[key]?.active && <span style={{ fontSize: 12, color: '#aaa' }}>— Fechado</span>}
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="form-group">
               <label>Cor do Tema</label>
@@ -323,7 +446,7 @@ function CategoriesPage() {
       <div className="page-header">
         <div>
           <h1>Categorias</h1>
-          <p>Organize seus produtos em categorias</p>
+          <p>Organize seus serviços em categorias</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEditingCat(null); setCatName(''); setShowModal(true); }}>
           ＋ Nova Categoria
@@ -336,7 +459,7 @@ function CategoriesPage() {
         <div className="empty-state">
           <div className="empty-icon">📁</div>
           <h3>Nenhuma categoria</h3>
-          <p>Crie categorias para organizar seus produtos</p>
+          <p>Crie categorias para organizar seus serviços</p>
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>Criar Primeira Categoria</button>
         </div>
       ) : (
@@ -347,7 +470,7 @@ function CategoriesPage() {
                 <div className="cat-icon">📁</div>
                 <div>
                   <h3>{cat.name}</h3>
-                  <span>{cat._count?.products || 0} produtos</span>
+                  <span>{cat._count?.products || 0} serviços</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -378,13 +501,13 @@ function CategoriesPage() {
   );
 }
 
-function ProductsPage() {
+function ServicesPage() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingProd, setEditingProd] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '', price: '', categoryId: '' });
+  const [form, setForm] = useState({ name: '', description: '', price: '', categoryId: '', duration: '30', bufferTime: '0' });
   const [error, setError] = useState('');
 
   const loadData = async () => {
@@ -403,13 +526,13 @@ function ProductsPage() {
 
   const openNew = () => {
     setEditingProd(null);
-    setForm({ name: '', description: '', price: '', categoryId: '' });
+    setForm({ name: '', description: '', price: '', categoryId: '', duration: '30', bufferTime: '0' });
     setShowModal(true);
   };
 
   const openEdit = (p) => {
     setEditingProd(p);
-    setForm({ name: p.name, description: p.description || '', price: String(p.price), categoryId: p.categoryId ? String(p.categoryId) : '' });
+    setForm({ name: p.name, description: p.description || '', price: String(p.price), categoryId: p.categoryId ? String(p.categoryId) : '', duration: String(p.duration ?? 30), bufferTime: String(p.bufferTime ?? 0) });
     setShowModal(true);
   };
 
@@ -417,9 +540,9 @@ function ProductsPage() {
     if (!form.name || !form.price) return;
     try {
       if (editingProd) {
-        await productsAPI.update(editingProd.id, { ...form, price: parseFloat(form.price), categoryId: form.categoryId || null });
+        await productsAPI.update(editingProd.id, { ...form, price: parseFloat(form.price), categoryId: form.categoryId || null, duration: parseInt(form.duration)||30, bufferTime: parseInt(form.bufferTime)||0 });
       } else {
-        await productsAPI.create({ ...form, price: parseFloat(form.price), categoryId: form.categoryId || null });
+        await productsAPI.create({ ...form, price: parseFloat(form.price), categoryId: form.categoryId || null, duration: parseInt(form.duration)||30, bufferTime: parseInt(form.bufferTime)||0 });
       }
       setShowModal(false);
       loadData();
@@ -429,7 +552,7 @@ function ProductsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Remover este produto?')) return;
+    if (!confirm('Remover este serviço?')) return;
     try {
       await productsAPI.delete(id);
       loadData();
@@ -466,20 +589,28 @@ function ProductsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Produtos</h1>
-          <p>Gerencie seus produtos e serviços</p>
+          <h1>Serviços</h1>
+          <p>Gerencie seus serviços</p>
         </div>
-        <button className="btn btn-primary" onClick={openNew}>＋ Novo Produto</button>
+        <button className="btn btn-primary" onClick={openNew}>＋ Novo Serviço</button>
       </div>
+
+      <PageGuide pageKey="services" title="Como cadastrar serviços" steps={[
+        'Clique em <strong>+ Novo Serviço</strong> para adicionar um serviço (ex: Corte Masculino, Barba, Manicure).',
+        'Preencha o <strong>nome</strong>, <strong>preço</strong> e, muito importante, a <strong>duração em minutos</strong> — o sistema usa isso para calcular os horários disponíveis.',
+        'O campo <strong>Intervalo após</strong> é o tempo de descanso/limpeza depois do atendimento. Ex: 10 min de limpeza após cada corte.',
+        'Serviços <strong>inativos</strong> (clique no toggle de status) não aparecem para agendamento no chatbot.',
+        'Você pode adicionar uma <strong>foto</strong> ao serviço — ela aparece na vitrine pública da sua loja.',
+      ]} />
 
       {error && <div className="alert alert-error">{error}</div>}
 
       {products.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon">📦</div>
-          <h3>Nenhum produto</h3>
-          <p>Adicione seus produtos para que os clientes possam vê-los</p>
-          <button className="btn btn-primary" onClick={openNew}>Adicionar Primeiro Produto</button>
+          <div className="empty-icon">🛠️</div>
+          <h3>Nenhum serviço</h3>
+          <p>Adicione seus serviços para que os clientes possam vê-los</p>
+          <button className="btn btn-primary" onClick={openNew}>Adicionar Primeiro Serviço</button>
         </div>
       ) : (
         <div className="items-grid">
@@ -515,18 +646,28 @@ function ProductsPage() {
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>{editingProd ? 'Editar Produto' : 'Novo Produto'}</h2>
+            <h2>{editingProd ? 'Editar Serviço' : 'Novo Serviço'}</h2>
             <div className="form-group">
               <label>Nome</label>
               <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Corte Masculino" autoFocus />
             </div>
             <div className="form-group">
               <label>Descrição (opcional)</label>
-              <textarea className="form-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Descreva o produto..." rows={2} />
+              <textarea className="form-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Descreva o serviço..." rows={2} />
             </div>
             <div className="form-group">
               <label>Preço (R$)</label>
               <input className="form-input" type="number" step="0.01" min="0" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="Ex: 35.00" />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>⏱ Duração (min)</label>
+                <input className="form-input" type="number" min="5" step="5" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="30" />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>🔄 Intervalo após (min)</label>
+                <input className="form-input" type="number" min="0" step="5" value={form.bufferTime} onChange={e => setForm({ ...form, bufferTime: e.target.value })} placeholder="0" />
+              </div>
             </div>
             <div className="form-group">
               <label>Categoria</label>
@@ -588,7 +729,7 @@ function AdminPage() {
             <th>Dono</th>
             <th>E-mail</th>
             <th>Plano</th>
-            <th>Produtos</th>
+            <th>Serviços</th>
             <th>Status</th>
             <th>Ações</th>
           </tr>
@@ -618,18 +759,67 @@ function ChatbotPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showGuide, setShowGuide] = useState(false);
   const [products, setProducts] = useState([]);
+  const [waStatus, setWaStatus] = useState({ status: 'disconnected', qr: null, phone: null, error: null });
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
-    Promise.all([storeAPI.getChatbot(), productsAPI.list()])
-      .then(([chatbot, prods]) => {
+    Promise.all([storeAPI.getChatbot(), productsAPI.list(), whatsappAPI.status()])
+      .then(([chatbot, prods, status]) => {
         setConfig(chatbot);
         setProducts(prods);
+        setWaStatus(status);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Poll WhatsApp status while connecting or waiting for QR scan
+  useEffect(() => {
+    const shouldPoll = waStatus.status === 'connecting' || waStatus.status === 'qr' || waStatus.status === 'reconnecting';
+    if (!shouldPoll) return;
+    const interval = setInterval(async () => {
+      try {
+        const status = await whatsappAPI.status();
+        setWaStatus(status);
+        if (status.status === 'connected' || status.status === 'disconnected' || status.status === 'error') {
+          clearInterval(interval);
+          setConnecting(false);
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [waStatus.status]);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setError('');
+    try {
+      const result = await whatsappAPI.connect();
+      setWaStatus(result);
+    } catch (err) {
+      setError(err.message);
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Desconectar o WhatsApp? O chatbot será desativado.')) return;
+    setDisconnecting(true);
+    setError('');
+    try {
+      await whatsappAPI.disconnect();
+      setWaStatus({ status: 'disconnected', qr: null, phone: null, error: null });
+      setConfig(prev => ({ ...prev, botEnabled: false }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -649,8 +839,8 @@ function ChatbotPage() {
 
   if (loading) return <div className="loading-spinner" />;
 
-  const webhookUrl = `${window.location.protocol}//${window.location.hostname}:3001/api/webhook/${store?.id || ''}`;
   const activeProducts = products.filter(p => p.active);
+  const isConnected = waStatus.status === 'connected';
 
   return (
     <div>
@@ -667,100 +857,111 @@ function ChatbotPage() {
       <div className="settings-grid">
         {/* Coluna esquerda: Configurações */}
         <div className="settings-section">
-          <h3>⚡ Ativação do Chatbot</h3>
+          <h3>📱 Conexão com WhatsApp</h3>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${config?.botEnabled ? 'var(--success)' : 'var(--border)'}` }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1 }}>
-              <div style={{ width: '48px', height: '28px', borderRadius: '14px', background: config?.botEnabled ? 'var(--success)' : 'var(--bg-input)', transition: 'var(--transition)', position: 'relative', cursor: 'pointer' }}
-                onClick={() => setConfig({ ...config, botEnabled: !config.botEnabled })}>
-                <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: config?.botEnabled ? '23px' : '3px', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }} />
-              </div>
+          {/* Status card */}
+          <div style={{ padding: '20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${isConnected ? 'var(--success)' : 'var(--border)'}`, marginBottom: '24px' }}>
+            {isConnected ? (
               <div>
-                <div style={{ fontWeight: 600 }}>{config?.botEnabled ? '🟢 Chatbot Ativado' : '🔴 Chatbot Desativado'}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)' }} />
+                  <div>
+                    <div style={{ fontWeight: 700, color: 'var(--success)' }}>WhatsApp Conectado</div>
+                    {waStatus.phone && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>+{waStatus.phone}</div>}
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  O chatbot está ativo e respondendo automaticamente seus clientes pelo WhatsApp.
+                </p>
+                <button className="btn btn-secondary" onClick={handleDisconnect} disabled={disconnecting} style={{ width: '100%' }}>
+                  {disconnecting ? 'Desconectando...' : '🔌 Desconectar WhatsApp'}
+                </button>
               </div>
-            </label>
+            ) : waStatus.status === 'qr' && waStatus.qr ? (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontWeight: 600, marginBottom: '12px' }}>📷 Escaneie o QR Code</div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  Abra o WhatsApp no seu celular → Menu → Dispositivos conectados → Conectar dispositivo
+                </p>
+                <img src={waStatus.qr} alt="QR Code WhatsApp" style={{ width: '220px', height: '220px', borderRadius: 'var(--radius-md)', border: '4px solid var(--border)' }} />
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px' }}>O QR Code expira em 60 segundos. Aguardando leitura...</p>
+              </div>
+            ) : waStatus.status === 'connecting' || waStatus.status === 'reconnecting' ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <div className="loading-spinner" style={{ margin: '0 auto 16px' }} />
+                <div style={{ fontWeight: 600 }}>Aguardando QR Code...</div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>Isso pode levar alguns segundos</p>
+              </div>
+            ) : waStatus.status === 'error' ? (
+              <div>
+                <div style={{ color: 'var(--error)', fontWeight: 600, marginBottom: '8px' }}>❌ Erro de conexão</div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>{waStatus.error || 'Não foi possível conectar. Tente novamente.'}</p>
+                <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
+                  🔄 Tentar Novamente
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--text-muted)' }} />
+                  <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>WhatsApp Desconectado</div>
+                </div>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  Conecte seu WhatsApp para ativar o chatbot. É rápido — basta escanear um QR Code com o celular.
+                </p>
+                <ol style={{ paddingLeft: '18px', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <li>Clique em <strong>"Conectar WhatsApp"</strong></li>
+                  <li>Abra o WhatsApp no seu celular</li>
+                  <li>Vá em <strong>Menu → Dispositivos conectados → Conectar dispositivo</strong></li>
+                  <li>Escaneie o QR Code que aparecerá aqui</li>
+                </ol>
+                <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
+                  {connecting ? 'Iniciando...' : '📱 Conectar WhatsApp'}
+                </button>
+              </div>
+            )}
           </div>
 
-          <h3 style={{ marginTop: '24px' }}>💬 Mensagens</h3>
-          <div className="form-group">
-            <label>Mensagem de Boas-vindas</label>
-            <textarea className="form-input" value={config?.botGreeting || ''}
-              onChange={e => setConfig({ ...config, botGreeting: e.target.value })}
-              placeholder={`Olá! 👋 Bem-vindo(a) à ${store?.name}!\nComo posso te ajudar?`}
-              rows={3} />
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Essa é a primeira mensagem que o cliente recebe ao enviar qualquer coisa</span>
-          </div>
+          {isConnected && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${config?.botEnabled ? 'var(--success)' : 'var(--border)'}` }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1 }}>
+                  <div style={{ width: '48px', height: '28px', borderRadius: '14px', background: config?.botEnabled ? 'var(--success)' : 'var(--bg-input)', transition: 'var(--transition)', position: 'relative', cursor: 'pointer' }}
+                    onClick={() => setConfig({ ...config, botEnabled: !config.botEnabled })}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: config?.botEnabled ? '23px' : '3px', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{config?.botEnabled ? '🟢 Chatbot Ativado' : '🔴 Chatbot Desativado'}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
+                  </div>
+                </label>
+              </div>
 
-          <div className="form-group">
-            <label>Mensagem Fora do Horário (opcional)</label>
-            <textarea className="form-input" value={config?.botAwayMessage || ''}
-              onChange={e => setConfig({ ...config, botAwayMessage: e.target.value })}
-              placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
-              rows={2} />
-          </div>
+              <h3 style={{ marginTop: '8px' }}>💬 Mensagens</h3>
+              <div className="form-group">
+                <label>Mensagem de Boas-vindas</label>
+                <textarea className="form-input" value={config?.botGreeting || ''}
+                  onChange={e => setConfig({ ...config, botGreeting: e.target.value })}
+                  placeholder={`Olá! 👋 Bem-vindo(a) à ${store?.name}!\nComo posso te ajudar?`}
+                  rows={3} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Essa é a primeira mensagem que o cliente recebe ao enviar qualquer coisa</span>
+              </div>
 
-          <h3 style={{ marginTop: '24px' }}>🔑 API do WhatsApp Business</h3>
-          <div style={{ padding: '12px', background: 'rgba(108, 99, 255, 0.08)', borderRadius: 'var(--radius-md)', marginBottom: '16px', border: '1px solid rgba(108, 99, 255, 0.2)' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              💡 Precisa de ajuda? <span style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 600 }}
-                onClick={() => setShowGuide(!showGuide)}>{showGuide ? 'Fechar guia ↑' : 'Ver guia passo a passo ↓'}</span>
-            </span>
-          </div>
+              <div className="form-group">
+                <label>Mensagem Fora do Horário (opcional)</label>
+                <textarea className="form-input" value={config?.botAwayMessage || ''}
+                  onChange={e => setConfig({ ...config, botAwayMessage: e.target.value })}
+                  placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
+                  rows={2} />
+              </div>
 
-          {showGuide && (
-            <div style={{ padding: '20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', marginBottom: '20px', border: '1px solid var(--border)' }}>
-              <h4 style={{ marginBottom: '12px' }}>📖 Como configurar o WhatsApp Business API</h4>
-              <ol style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                <li>Acesse <a href="https://developers.facebook.com" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>developers.facebook.com</a> e crie um aplicativo</li>
-                <li>Selecione <strong>"Business"</strong> como tipo do app</li>
-                <li>No painel, vá em <strong>WhatsApp → Configuração da API</strong></li>
-                <li>Copie o <strong>"Phone Number ID"</strong> e cole no campo abaixo</li>
-                <li>Gere um <strong>"Access Token"</strong> permanente e cole abaixo</li>
-                <li>Na seção <strong>Webhooks</strong>, configure:
-                  <ul style={{ marginTop: '6px' }}>
-                    <li>URL: <code style={{ background: 'var(--bg-dark)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.8rem' }}>{webhookUrl}</code></li>
-                    <li>Token de verificação: o que você definir abaixo</li>
-                    <li>Campos: <strong>messages</strong></li>
-                  </ul>
-                </li>
-                <li>Pronto! O chatbot começará a responder automaticamente 🎉</li>
-              </ol>
-            </div>
+              <div style={{ marginTop: '20px', textAlign: 'right' }}>
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                  {saving ? 'Salvando...' : '💾 Salvar Configurações'}
+                </button>
+              </div>
+            </>
           )}
-
-          <div className="form-group">
-            <label>Phone Number ID</label>
-            <input className="form-input" value={config?.botPhoneId || ''}
-              onChange={e => setConfig({ ...config, botPhoneId: e.target.value })}
-              placeholder="Ex: 123456789012345" />
-          </div>
-          <div className="form-group">
-            <label>Access Token</label>
-            <input className="form-input" type="password" value={config?.botToken || ''}
-              onChange={e => setConfig({ ...config, botToken: e.target.value })}
-              placeholder="EAAxxxxxxxx..." />
-          </div>
-          <div className="form-group">
-            <label>Token de Verificação do Webhook</label>
-            <input className="form-input" value={config?.botWebhookToken || ''}
-              onChange={e => setConfig({ ...config, botWebhookToken: e.target.value })}
-              placeholder="Crie um token qualquer, ex: meu_token_secreto" />
-          </div>
-
-          <div className="form-group" style={{ marginTop: '8px' }}>
-            <label>URL do Webhook (copie para o Facebook)</label>
-            <div className="store-link-url" style={{ fontSize: '0.8rem' }}>
-              <span style={{ flex: 1, wordBreak: 'break-all' }}>{webhookUrl}</span>
-              <button className="btn btn-secondary btn-sm" onClick={() => { navigator.clipboard.writeText(webhookUrl); }}>📋</button>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '20px', textAlign: 'right' }}>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? 'Salvando...' : '💾 Salvar Configurações'}
-            </button>
-          </div>
         </div>
 
         {/* Coluna direita: Preview e Produtos */}
@@ -768,32 +969,26 @@ function ChatbotPage() {
           <div className="settings-section" style={{ marginBottom: '24px' }}>
             <h3>📱 Preview do Chatbot</h3>
             <div style={{ background: '#0B141A', borderRadius: 'var(--radius-lg)', padding: '20px', fontFamily: 'system-ui' }}>
-              {/* Simulated WhatsApp chat */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* Customer message */}
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
                   Oi, tudo bem?
                 </div>
-                {/* Bot response */}
                 <div style={{ alignSelf: 'flex-start', background: '#1F2C34', color: 'white', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', fontSize: '0.85rem' }}>
                   <div style={{ marginBottom: '8px' }}>
                     {config?.botGreeting || `Olá! 👋 Bem-vindo(a) à ${store?.name}!`}
                   </div>
                   <div style={{ color: '#8696A0', fontSize: '0.8rem' }}>Como posso te ajudar?</div>
                 </div>
-                {/* Buttons */}
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {['📋 Ver Catálogo', '📦 Todos Produtos', '🛒 Fazer Pedido'].map(btn => (
+                  {['📋 Ver Catálogo', '🛒 Fazer Pedido', '📄 Meus Pedidos'].map(btn => (
                     <span key={btn} style={{ padding: '6px 14px', background: '#1F2C34', border: '1px solid #2A3942', borderRadius: '20px', fontSize: '0.8rem', color: '#53BDEB' }}>{btn}</span>
                   ))}
                 </div>
-                {/* Category selection */}
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
                   📋 Ver Catálogo
                 </div>
-                {/* Product list */}
                 <div style={{ alignSelf: 'flex-start', background: '#1F2C34', color: 'white', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', fontSize: '0.85rem' }}>
-                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>📦 Produtos disponíveis:</div>
+                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>🛠️ Serviços disponíveis:</div>
                   {activeProducts.slice(0, 3).map(p => (
                     <div key={p.id} style={{ padding: '4px 0', borderBottom: '1px solid #2A3942', display: 'flex', justifyContent: 'space-between' }}>
                       <span>{p.name}</span>
@@ -801,16 +996,16 @@ function ChatbotPage() {
                     </div>
                   ))}
                   {activeProducts.length > 3 && <div style={{ color: '#8696A0', fontSize: '0.8rem', marginTop: '4px' }}>+{activeProducts.length - 3} mais...</div>}
-                  {activeProducts.length === 0 && <div style={{ color: '#8696A0' }}>Nenhum produto ativo</div>}
+                  {activeProducts.length === 0 && <div style={{ color: '#8696A0' }}>Nenhum serviço ativo</div>}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="settings-section">
-            <h3>📦 Produtos no Chatbot ({activeProducts.length})</h3>
+            <h3>🛠️ Serviços no Chatbot ({activeProducts.length})</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-              Todos os produtos <strong>ativos</strong> aparecem automaticamente no chatbot. Para remover um produto do bot, desative-o na página de <a href="/dashboard/produtos" style={{ color: 'var(--primary)' }}>Produtos</a>.
+              Todos os serviços <strong>ativos</strong> aparecem automaticamente no chatbot. Para remover um serviço do bot, desative-o na página de <a href="/dashboard/servicos" style={{ color: 'var(--primary)' }}>Serviços</a>.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
               {activeProducts.map(p => (
@@ -822,7 +1017,7 @@ function ChatbotPage() {
               ))}
               {activeProducts.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                  Nenhum produto ativo. Adicione produtos primeiro.
+                  Nenhum serviço ativo. Adicione serviços primeiro.
                 </div>
               )}
             </div>
@@ -1042,21 +1237,228 @@ function OrdersPage() {
   );
 }
 
-export default function Dashboard() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+function ChatbotPaywall() {
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1>🤖 Chatbot WhatsApp</h1>
+          <p>Conecte seu WhatsApp e comece a atender automaticamente</p>
+        </div>
+      </div>
+      <div className="card" style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+        <h2 style={{ marginBottom: '16px' }}>Recurso Premium</h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '32px', maxWidth: '500px', margin: '0 auto 32px', lineHeight: '1.6' }}>
+          O Chatbot Automático é uma funcionalidade exclusiva para assinantes Premium. 
+          Desbloqueie agora para conectar o sistema ao seu número e assistir o robô receber pedidos sozinho 24/7.
+        </p>
+        <Link to="/dashboard/billing" className="btn btn-primary" style={{ padding: '16px 32px', fontSize: '1.1rem', fontWeight: 600 }}>
+          ✨ Desbloquear Chatbot Premium
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function _AgendaPageLegacy_REMOVED() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  useEffect(() => {
+    ordersAPI.list('all')
+      .then(data => setOrders(data.orders || []))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const scheduled = orders.filter(o => o.scheduledTime);
+
+  // Calendar helpers
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const weekDays = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+
+  // Map orders by creation day (day of month, same month/year)
+  const ordersByDay = {};
+  scheduled.forEach(o => {
+    const d = new Date(o.createdAt);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const day = d.getDate();
+      if (!ordersByDay[day]) ordersByDay[day] = [];
+      ordersByDay[day].push(o);
+    }
+  });
+
+  const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+
+  const statusConfig = {
+    pending:   { label: 'Aguardando', color: '#f59e0b' },
+    confirmed: { label: 'Confirmado', color: '#10b981' },
+    completed: { label: 'Concluído',  color: '#6366f1' },
+    cancelled: { label: 'Cancelado',  color: '#ef4444' },
+  };
+
+  const selectedOrders = selectedDay ? (ordersByDay[selectedDay] || []) : scheduled;
+
+  if (loading) return <div className="loading-spinner" />;
 
   return (
-    <div className="dashboard">
-      <button className="menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>☰</button>
+    <div>
+      <div className="page-header">
+        <div>
+          <h1>📅 Agenda</h1>
+          <p>Visualize os agendamentos em formato de calendário</p>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {/* Calendário */}
+      <div className="settings-section" style={{ marginBottom: '24px' }}>
+        {/* Navegação do mês */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={prevMonth}>‹ Anterior</button>
+          <h3 style={{ margin: 0, fontWeight: 700 }}>{monthNames[month]} {year}</h3>
+          <button className="btn btn-secondary btn-sm" onClick={nextMonth}>Próximo ›</button>
+        </div>
+
+        {/* Dias da semana */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '4px' }}>
+          {weekDays.map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', padding: '4px 0' }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Células do calendário */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const day = i + 1;
+            const isToday = today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
+            const hasOrders = !!ordersByDay[day];
+            const isSelected = selectedDay === day;
+            return (
+              <div
+                key={day}
+                onClick={() => setSelectedDay(isSelected ? null : day)}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: 'var(--radius-sm)',
+                  textAlign: 'center',
+                  cursor: hasOrders ? 'pointer' : 'default',
+                  background: isSelected ? 'var(--primary)' : isToday ? 'rgba(108,99,255,0.12)' : 'var(--bg-elevated)',
+                  border: `1px solid ${isSelected ? 'var(--primary)' : isToday ? 'var(--primary)' : 'var(--border)'}`,
+                  color: isSelected ? 'white' : 'var(--text-primary)',
+                  position: 'relative',
+                  transition: 'var(--transition)',
+                  minHeight: '48px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '0.9rem', fontWeight: isToday ? 700 : 400 }}>{day}</span>
+                {hasOrders && (
+                  <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {ordersByDay[day].slice(0, 3).map(o => (
+                      <div key={o.id} style={{ width: '7px', height: '7px', borderRadius: '50%', background: isSelected ? 'rgba(255,255,255,0.8)' : (statusConfig[o.status]?.color || '#6366f1') }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedDay && (
+          <div style={{ marginTop: '12px', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Mostrando agendamentos do dia <strong>{selectedDay} de {monthNames[month]}</strong> —{' '}
+            <span style={{ color: 'var(--primary)', cursor: 'pointer' }} onClick={() => setSelectedDay(null)}>ver todos</span>
+          </div>
+        )}
+      </div>
+
+      {/* Lista de agendamentos */}
+      <div className="settings-section">
+        <h3 style={{ marginBottom: '16px' }}>
+          {selectedDay ? `Agendamentos — ${selectedDay} de ${monthNames[month]}` : 'Todos os Agendamentos'}
+          <span style={{ marginLeft: '10px', fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-muted)' }}>({selectedOrders.length})</span>
+        </h3>
+
+        {selectedOrders.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">📅</div>
+            <h3>{selectedDay ? 'Nenhum agendamento neste dia' : 'Nenhum agendamento ainda'}</h3>
+            <p>Os agendamentos feitos pelo chatbot aparecerão aqui</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {selectedOrders.map(order => {
+              const sc = statusConfig[order.status] || statusConfig.pending;
+              const d = new Date(order.createdAt);
+              return (
+                <div key={order.id} style={{ background: 'var(--bg-elevated)', border: `1px solid var(--border)`, borderLeft: `4px solid ${sc.color}`, borderRadius: 'var(--radius-md)', padding: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <span style={{ fontWeight: 700 }}>{order.customerName}</span>
+                      <span style={{ padding: '2px 10px', borderRadius: 'var(--radius-full)', background: `${sc.color}22`, color: sc.color, fontSize: '0.75rem', fontWeight: 600 }}>{sc.label}</span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                      <span>🛠️ {order.product?.name || 'Serviço removido'}</span>
+                      <span>🕐 <strong style={{ color: 'var(--text-primary)' }}>{order.scheduledTime}</strong></span>
+                      <span>📱 <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" style={{ color: '#25D366' }}>{order.customerPhone}</a></span>
+                      {order.notes && <span>💬 {order.notes}</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--success)' }}>R$ {(order.totalPrice || 0).toFixed(2).replace('.', ',')}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{d.toLocaleDateString('pt-BR')}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { store } = useAuth();
+  const isPremium = store?.subscriptionStatus === 'active';
+
+  return (
+    <div className="dashboard dashboard-light">
+      <div className="dashboard-glow" aria-hidden="true" />
+      <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>☰</button>
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 99}} />}
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="main-content">
         <Routes>
-          <Route index element={<DashboardHome />} />
+          <Route path="" element={<DashboardHome />} />
           <Route path="loja" element={<StoreSettings />} />
           <Route path="categorias" element={<CategoriesPage />} />
-          <Route path="produtos" element={<ProductsPage />} />
-          <Route path="chatbot" element={<ChatbotPage />} />
+          <Route path="servicos" element={<ServicesPage />} />
+          <Route path="agenda" element={<AgendaPage />} />
+          <Route path="chatbot" element={isPremium ? <ChatbotPage /> : <ChatbotPaywall />} />
           <Route path="pedidos" element={<OrdersPage />} />
+          <Route path="billing" element={<BillingPage />} />
+          <Route path="profissionais" element={<ProfessionalsPage />} />
+          <Route path="bloqueios" element={<BlockedSlotsPage />} />
+          <Route path="clientes" element={<ClientsPage />} />
           <Route path="admin" element={<AdminPage />} />
         </Routes>
       </main>
