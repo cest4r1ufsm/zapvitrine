@@ -8,34 +8,47 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String
-  role      String   @default("business")
-  plan      String   @default("free")
-  createdAt DateTime @default(now())
-  store     Store?
+  id                     Int       @id @default(autoincrement())
+  email                  String    @unique
+  password               String
+  name                   String
+  role                   String    @default("business")
+  plan                   String    @default("free")
+  emailVerified          Boolean   @default(false)
+  emailVerificationToken String?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  createdAt              DateTime  @default(now())
+  store                  Store?
 }
 
 model Store {
-  id            Int        @id @default(autoincrement())
-  userId        Int        @unique
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String
-  slug          String     @unique
-  description   String?
-  phone         String
-  address       String?
-  logoUrl       String?
-  bannerUrl     String?
-  themeColor    String     @default("#6C63FF")
-  businessHours String?
-  active        Boolean    @default(true)
+  id               Int        @id @default(autoincrement())
+  userId           Int        @unique
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  slug             String     @unique
+  description      String?
+  phone            String
+  address          String?
+  logoUrl          String?
+  bannerUrl        String?
+  themeColor       String     @default("#6C63FF")
+  businessHours    String?
+  schedulingConfig String?
+  active           Boolean    @default(true)
   createdAt     DateTime   @default(now())
+  updatedAt             DateTime  @updatedAt
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  subscriptionStatus    String    @default("free") // free, active, past_due, canceled
+  plan                  String    @default("trial")
   categories    Category[]
   products      Product[]
   orders        Order[]
+  professionals Professional[]
+  blockedSlots  BlockedSlot[]
+  clients       Client[]
 
   // Chatbot configuration
   botEnabled      Boolean  @default(false)
@@ -64,6 +77,8 @@ model Product {
   name        String
   description String?
   price       Float
+  duration    Int       @default(30)
+  bufferTime  Int       @default(0)
   imageUrl    String?
   active      Boolean   @default(true)
   order       Int       @default(0)
@@ -72,18 +87,58 @@ model Product {
 }
 
 model Order {
-  id              Int       @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   storeId         Int
-  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
   productId       Int?
-  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  product         Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  professionalId  Int?
+  professional    Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
   customerName    String
   customerPhone   String
   customerAddress String?
-  scheduledTime   String?   // horário desejado ex: "Amanhã às 14h"
-  notes           String?   // observações adicionais
-  status          String    @default("pending") // pending, confirmed, completed, cancelled
+  scheduledTime   String?
+  scheduledAt     DateTime?
+  notes           String?
+  status          String        @default("pending") // pending, confirmed, completed, cancelled
   totalPrice      Float?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime      @default(now())
+}
+
+model Professional {
+  id           Int           @id @default(autoincrement())
+  storeId      Int
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name         String
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  orders       Order[]
+  blockedSlots BlockedSlot[]
+}
+
+model BlockedSlot {
+  id             Int           @id @default(autoincrement())
+  storeId        Int
+  store          Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  professionalId Int?
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  date           String        // YYYY-MM-DD ou "monday","tuesday" etc para recorrente
+  startTime      String?       // HH:MM
+  endTime        String?       // HH:MM
+  isFullDay      Boolean       @default(false)
+  isRecurring    Boolean       @default(false)
+  reason         String?
+  createdAt      DateTime      @default(now())
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  storeId   Int
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, phone])
 }
 
