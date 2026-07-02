@@ -16,7 +16,7 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    let msg = `🛒 *Novo Pedido via ZapVitrine!*\n\n`;
+    let msg = `🛒 *Novo Pedido via Pedido Pronto!*\n\n`;
     msg += `🏪 *${storeName}*\n\n`;
     msg += `📦 *Itens:*\n`;
     cart.forEach(item => {
@@ -93,7 +93,7 @@ export default function PublicStore() {
     publicAPI.getStore(slug)
       .then(data => {
         setStore(data);
-        document.title = `${data.name} | ZapVitrine`;
+        document.title = `${data.name} | Pedido Pronto`;
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
