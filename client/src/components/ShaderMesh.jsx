@@ -90,9 +90,9 @@ void main() {
 
   vec3 col = mix(CREAM, SOFT, smoothstep(0.0, 1.0, v_uv.y));
   col = mix(col, BLUSH,  b5 * 0.32);
-  col = mix(col, PURPLE, b1 * 0.46 * topFade);
+  col = mix(col, PURPLE, b1 * 0.14 * topFade);
   col = mix(col, LIME,   b2 * 0.32);
-  col = mix(col, PURPLE, b3 * 0.38);
+  col = mix(col, PURPLE, b3 * 0.11);
   col = mix(col, LIME,   b4 * 0.28 * topFade);
 
   // Soft "breathing" pulse: very slow global brightness wobble
