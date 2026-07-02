@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
+const { sendMessageToCustomer } = require('../services/whatsapp');
 
 const router = express.Router();
 
@@ -77,6 +78,24 @@ router.patch('/:id/status', auth, async (req, res) => {
       data: { status },
       include: { product: true },
     });
+
+    // Notify customer via WhatsApp
+    try {
+      let msg = '';
+      if (status === 'confirmed') {
+        msg = `✅ Olá, ${updated.customerName}! Seu pedido *#${updated.id}* de *${updated.product?.name || 'produto'}* foi *confirmado* pela loja.`;
+      } else if (status === 'completed') {
+        msg = `🎉 Olá, ${updated.customerName}! Seu pedido *#${updated.id}* de *${updated.product?.name || 'produto'}* foi *concluído*. Obrigado pela preferência!`;
+      } else if (status === 'cancelled') {
+        msg = `❌ Olá, ${updated.customerName}. Seu pedido *#${updated.id}* de *${updated.product?.name || 'produto'}* foi *cancelado* pela loja.`;
+      }
+
+      if (msg && updated.customerPhone) {
+        await sendMessageToCustomer(store.id, updated.customerPhone, msg);
+      }
+    } catch (e) {
+      console.error('Erro ao notificar cliente via WhatsApp:', e.message);
+    }
 
     res.json(updated);
   } catch (error) {
