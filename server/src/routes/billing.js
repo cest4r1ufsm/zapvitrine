@@ -8,6 +8,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 router.post('/checkout', auth, async (req, res) => {
   try {
+    // URLs de retorno vêm SEMPRE do APP_URL — nunca do header Origin (manipulável/ausente)
+    const appUrl = process.env.APP_URL;
+    if (!appUrl) {
+      console.error('APP_URL não configurado no .env — checkout abortado');
+      return res.status(500).json({ error: 'Configuração do servidor incompleta' });
+    }
+
     const store = await prisma.store.findUnique({ where: { userId: req.user.id } });
     if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
 
@@ -15,7 +22,7 @@ router.post('/checkout', auth, async (req, res) => {
     if (store.subscriptionStatus === 'active' && store.stripeCustomerId) {
       const portalSession = await stripe.billingPortal.sessions.create({
         customer: store.stripeCustomerId,
-        return_url: `${req.headers.origin}/dashboard/billing`,
+        return_url: `${appUrl}/dashboard/billing`,
       });
       return res.json({ url: portalSession.url });
     }
@@ -30,8 +37,8 @@ router.post('/checkout', auth, async (req, res) => {
         },
       ],
       mode: 'subscription',
-      success_url: `${req.headers.origin}/dashboard/billing?success=true`,
-      cancel_url: `${req.headers.origin}/dashboard/billing?canceled=true`,
+      success_url: `${appUrl}/dashboard/billing?success=true`,
+      cancel_url: `${appUrl}/dashboard/billing?canceled=true`,
       client_reference_id: store.id.toString(),
       metadata: {
         storeId: store.id.toString(),
