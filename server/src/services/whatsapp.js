@@ -3,6 +3,7 @@ const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
 const prisma = require('../lib/prisma');
+const { isEligible } = require('../middleware/premium');
 
 // Suppress Baileys verbose logging
 const pino = require('pino');
@@ -22,6 +23,15 @@ function getSessionPath(storeId) {
 }
 
 async function startSession(storeId) {
+  // Defesa em profundidade: nunca conectar o bot para loja sem assinatura/trial válido
+  // (a rota /connect já valida via requirePremium; isto cobre restoreSessions e reconexões)
+  const storeCheck = await prisma.store.findUnique({ where: { id: storeId } });
+  if (!storeCheck || !isEligible(storeCheck)) {
+    const err = new Error('Assinatura necessária para conectar o bot');
+    err.code = 'SUBSCRIPTION_REQUIRED';
+    throw err;
+  }
+
   // If session already active, return current state
   if (sessions.has(storeId)) {
     const existing = sessions.get(storeId);
@@ -95,11 +105,17 @@ async function startSession(storeId) {
 
         console.log(`✅ WhatsApp conectado para loja #${storeId} (${phoneNumber})`);
 
-        // Update store in database
-        await prisma.store.update({
-          where: { id: storeId },
-          data: { botEnabled: true },
-        });
+        // Só habilita o bot se a loja continua elegível (pode ter cancelado entre o QR e a conexão)
+        const storeNow = await prisma.store.findUnique({ where: { id: storeId } });
+        if (storeNow && isEligible(storeNow)) {
+          await prisma.store.update({
+            where: { id: storeId },
+            data: { botEnabled: true },
+          });
+        } else {
+          console.log(`🚫 Loja #${storeId} sem assinatura elegível — encerrando sessão recém-conectada`);
+          stopSession(storeId).catch((err) => console.error('Erro ao encerrar sessão inelegível:', err.message));
+        }
       }
 
       if (connection === 'close') {
@@ -128,6 +144,12 @@ async function startSession(storeId) {
           setTimeout(() => {
             startSession(storeId).catch(err => {
               console.error(`Reconnect failed for store #${storeId}:`, err.message);
+              // Marca a sessão como erro para o frontend parar o polling de "reconnecting"
+              const s = sessions.get(storeId);
+              if (s) {
+                s.status = 'error';
+                s.error = 'Não foi possível reconectar. Conecte novamente pelo painel.';
+              }
             });
           }, 5000);
         } else {
@@ -627,6 +649,13 @@ async function restoreSessions() {
       }
     } catch(e) {
       fs.rmSync(path.join(sessionsDir, dir), { recursive: true, force: true });
+      continue;
+    }
+
+    // Não restaurar sessões de lojas sem assinatura/trial válido
+    const store = await prisma.store.findUnique({ where: { id: storeId } });
+    if (!store || !isEligible(store)) {
+      console.log(`⏭️ Loja #${storeId} sem assinatura elegível — sessão não restaurada`);
       continue;
     }
 
