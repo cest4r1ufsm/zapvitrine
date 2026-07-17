@@ -1,7 +1,28 @@
 const express = require('express');
+const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 
 const router = express.Router();
+
+// Valida a assinatura X-Hub-Signature-256 enviada pela Meta (HMAC-SHA256 do corpo bruto).
+// Retorna: true (válida) | false (inválida/ausente) | 'skip' (META_APP_SECRET não configurado)
+function verifyMetaSignature(req) {
+  const secret = process.env.META_APP_SECRET;
+  if (!secret) return 'skip';
+
+  const signature = req.headers['x-hub-signature-256'];
+  if (!signature || !req.rawBody) return false;
+
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 // In-memory conversation state (per customer phone per store)
 // Format: { "storeId:phone": { step, productId, data: { name, address, time } } }
@@ -14,8 +35,13 @@ function getConvoKey(storeId, phone) {
 // WhatsApp Cloud API webhook verification
 router.get('/:storeId', async (req, res) => {
   try {
+    const storeId = parseInt(req.params.storeId);
+    if (isNaN(storeId)) {
+      return res.sendStatus(403);
+    }
+
     const store = await prisma.store.findUnique({
-      where: { id: parseInt(req.params.storeId) },
+      where: { id: storeId },
     });
 
     if (!store || !store.botWebhookToken) {
@@ -41,11 +67,21 @@ router.get('/:storeId', async (req, res) => {
 // Receive WhatsApp messages
 router.post('/:storeId', async (req, res) => {
   try {
+    const storeId = parseInt(req.params.storeId);
+    if (isNaN(storeId)) {
+      return res.sendStatus(404);
+    }
+
+    // Assinatura inválida → rejeita ANTES de qualquer processamento
+    if (verifyMetaSignature(req) === false) {
+      return res.sendStatus(401);
+    }
+
     // Always respond 200 immediately (WhatsApp requirement)
     res.sendStatus(200);
 
     const store = await prisma.store.findUnique({
-      where: { id: parseInt(req.params.storeId) },
+      where: { id: storeId },
       include: {
         categories: { orderBy: { order: 'asc' } },
         products: {
