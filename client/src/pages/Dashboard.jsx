@@ -1438,7 +1438,9 @@ function _AgendaPageLegacy_REMOVED() {
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { store } = useAuth();
-  const isPremium = store?.subscriptionStatus === 'active';
+  const isPremium =
+    store?.subscriptionStatus === 'active' ||
+    (store?.trialEndsAt && new Date(store.trialEndsAt) > new Date());
 
   return (
     <div className="dashboard dashboard-light">
