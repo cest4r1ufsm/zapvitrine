@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const { processImage } = require('../utils/processImage');
 
 const router = express.Router();
 
@@ -124,7 +125,8 @@ router.post('/:id/image', auth, upload.single('image'), async (req, res) => {
     });
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    const imageUrl = `/uploads/${req.file.filename}`;
+    const { filename } = await processImage(req.file);
+    const imageUrl = `/uploads/${filename}`;
     const updated = await prisma.product.update({
       where: { id: product.id },
       data: { imageUrl },
@@ -132,6 +134,7 @@ router.post('/:id/image', auth, upload.single('image'), async (req, res) => {
 
     res.json({ imageUrl: updated.imageUrl });
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Erro ao fazer upload da imagem' });
   }
