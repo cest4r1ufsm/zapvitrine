@@ -43,6 +43,7 @@ model Store {
   stripeSubscriptionId  String?
   subscriptionStatus    String    @default("free") // free, active, past_due, canceled
   plan                  String    @default("trial")
+  trialEndsAt           DateTime?
   categories    Category[]
   products      Product[]
   orders        Order[]
