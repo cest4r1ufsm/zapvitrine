@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const { processImage } = require('../utils/processImage');
 
 const router = express.Router();
 
@@ -15,7 +16,10 @@ router.get('/', auth, async (req, res) => {
     if (!store) {
       return res.status(404).json({ error: 'Loja não encontrada' });
     }
-    res.json(store);
+    // Nunca enviar segredos/ids internos ao navegador (o painel não usa esses campos;
+    // subscriptionStatus, plan e trialEndsAt continuam presentes)
+    const { botToken, stripeCustomerId, stripeSubscriptionId, ...safeStore } = store;
+    res.json(safeStore);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar loja' });
@@ -62,7 +66,8 @@ router.post('/logo', auth, upload.single('logo'), async (req, res) => {
       return res.status(400).json({ error: 'Envie uma imagem' });
     }
 
-    const logoUrl = `/uploads/${req.file.filename}`;
+    const { filename } = await processImage(req.file);
+    const logoUrl = `/uploads/${filename}`;
     const store = await prisma.store.update({
       where: { userId: req.user.id },
       data: { logoUrl },
@@ -70,6 +75,7 @@ router.post('/logo', auth, upload.single('logo'), async (req, res) => {
 
     res.json({ logoUrl: store.logoUrl });
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Erro ao fazer upload do logo' });
   }
@@ -82,7 +88,8 @@ router.post('/banner', auth, upload.single('banner'), async (req, res) => {
       return res.status(400).json({ error: 'Envie uma imagem' });
     }
 
-    const bannerUrl = `/uploads/${req.file.filename}`;
+    const { filename } = await processImage(req.file);
+    const bannerUrl = `/uploads/${filename}`;
     const store = await prisma.store.update({
       where: { userId: req.user.id },
       data: { bannerUrl },
@@ -90,12 +97,15 @@ router.post('/banner', auth, upload.single('banner'), async (req, res) => {
 
     res.json({ bannerUrl: store.bannerUrl });
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message });
     console.error(error);
     res.status(500).json({ error: 'Erro ao fazer upload do banner' });
   }
 });
 
 // Get chatbot config
+// botToken (Cloud API da Meta) é write-only: nunca sai em texto claro para o navegador.
+// botWebhookToken permanece visível — é o verify token que o próprio usuário digita no painel da Meta.
 router.get('/chatbot', auth, async (req, res) => {
   try {
     const store = await prisma.store.findUnique({
@@ -111,7 +121,13 @@ router.get('/chatbot', auth, async (req, res) => {
       },
     });
     if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
-    res.json(store);
+
+    const { botToken, ...rest } = store;
+    res.json({
+      ...rest,
+      botTokenSet: !!botToken,
+      botTokenLast4: botToken ? botToken.slice(-4) : null,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar configurações do chatbot' });
@@ -130,7 +146,10 @@ router.put('/chatbot', auth, async (req, res) => {
         ...(botGreeting !== undefined && { botGreeting }),
         ...(botAwayMessage !== undefined && { botAwayMessage }),
         ...(botPhoneId !== undefined && { botPhoneId }),
-        ...(botToken !== undefined && { botToken }),
+        // botToken: só atualiza quando vier string não-vazia (evita apagar sem querer);
+        // null explícito limpa o token
+        ...(typeof botToken === 'string' && botToken.trim() !== '' && { botToken: botToken.trim() }),
+        ...(botToken === null && { botToken: null }),
         ...(botWebhookToken !== undefined && { botWebhookToken }),
       },
     });
@@ -140,7 +159,8 @@ router.put('/chatbot', auth, async (req, res) => {
       botGreeting: store.botGreeting,
       botAwayMessage: store.botAwayMessage,
       botPhoneId: store.botPhoneId,
-      botToken: store.botToken,
+      botTokenSet: !!store.botToken,
+      botTokenLast4: store.botToken ? store.botToken.slice(-4) : null,
       botWebhookToken: store.botWebhookToken,
     });
   } catch (error) {
