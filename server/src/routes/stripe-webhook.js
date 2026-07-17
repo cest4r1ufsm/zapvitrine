@@ -43,6 +43,8 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       
       case 'customer.subscription.updated': {
         const subscription = event.data.object;
+        // Nota: "past_due" intencionalmente NÃO derruba a sessão do bot aqui —
+        // período de graça até o próximo restart ou o cancelamento definitivo (subscription.deleted).
         // Pelo ID do customer ou da subscription, acha a store
         await prisma.store.updateMany({
            where: { stripeSubscriptionId: subscription.id },
@@ -55,6 +57,13 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object;
+
+        // Localiza as stores ANTES do update para poder derrubar as sessões Baileys ativas
+        const affectedStores = await prisma.store.findMany({
+          where: { stripeSubscriptionId: subscription.id },
+          select: { id: true },
+        });
+
         await prisma.store.updateMany({
            where: { stripeSubscriptionId: subscription.id },
            data: {
@@ -62,6 +71,15 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
               botEnabled: false // Desliga o robô automaticamente se cancelar!
            }
         });
+
+        // Encerra a sessão WhatsApp imediatamente (require tardio evita ciclo de dependência)
+        const { stopSession } = require('../services/whatsapp');
+        for (const s of affectedStores) {
+          stopSession(s.id).catch((err) =>
+            console.error(`Erro ao encerrar sessão da loja #${s.id} após cancelamento:`, err.message)
+          );
+        }
+
         console.log(`❌ Assinatura cancelada.`);
         break;
       }
