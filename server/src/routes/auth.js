@@ -5,15 +5,20 @@ const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { loginLimiter, registerLimiter, makeEmailLimiter } = require('../middleware/rateLimits');
 
 const router = express.Router();
+
+// Instâncias separadas: cada rota de e-mail tem o seu próprio balde de 3/h
+const resendVerificationLimiter = makeEmailLimiter();
+const forgotPasswordLimiter = makeEmailLimiter();
 
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
 // Register
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
@@ -51,6 +56,7 @@ router.post('/register', async (req, res) => {
         name: `Loja de ${name}`,
         slug: slug + '-' + user.id,
         phone: '',
+        trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
 
@@ -70,7 +76,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -140,7 +146,7 @@ router.get('/verify-email', async (req, res) => {
 });
 
 // Resend verification email
-router.post('/resend-verification', async (req, res) => {
+router.post('/resend-verification', resendVerificationLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -173,7 +179,7 @@ router.post('/resend-verification', async (req, res) => {
 });
 
 // Forgot password
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -255,7 +261,15 @@ router.get('/me', auth, async (req, res) => {
       select: { id: true, email: true, name: true, role: true, plan: true, createdAt: true },
     });
     const store = await prisma.store.findUnique({ where: { userId: req.user.id } });
-    res.json({ user, store });
+
+    // Nunca enviar segredos/ids internos ao navegador
+    let safeStore = null;
+    if (store) {
+      const { botToken, stripeCustomerId, stripeSubscriptionId, ...rest } = store;
+      safeStore = rest;
+    }
+
+    res.json({ user, store: safeStore });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
