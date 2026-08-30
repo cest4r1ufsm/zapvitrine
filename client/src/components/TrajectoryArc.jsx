@@ -7,6 +7,7 @@ export default function TrajectoryArc() {
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
+    let raf = 0;
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
@@ -14,7 +15,6 @@ export default function TrajectoryArc() {
             // animate progress 0→1
             const start = performance.now();
             const dur = 2200;
-            let raf;
             const tick = (now) => {
               const t = Math.min((now - start) / dur, 1);
               const eased = 1 - Math.pow(1 - t, 3);
@@ -28,7 +28,10 @@ export default function TrajectoryArc() {
       { threshold: 0.3 }
     );
     io.observe(node);
-    return () => io.disconnect();
+    return () => {
+      io.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   // curve: M 0 200 Q 600 -80 1200 200 (parabolic arc)

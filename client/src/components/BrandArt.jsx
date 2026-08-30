@@ -115,11 +115,11 @@ export function ChatLogArt() {
       </g>
 
       {/* Speed badge */}
-      <g transform="translate(370, 92)">
-        <rect width="120" height="28" rx="14" fill="#DFF26B" />
+      <g transform="translate(340, 92)">
+        <rect width="150" height="28" rx="14" fill="#DFF26B" />
         <circle cx="18" cy="14" r="6" fill="#18181f" />
         <path d="M 14 14 L 17 17 L 22 11" stroke="#DFF26B" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        <text x="32" y="18" fontFamily="Inter, sans-serif" fontWeight="700" fontSize="10.5" fill="#18181f">Respondido em 2s</text>
+        <text x="92" y="18" fontFamily="Inter, sans-serif" fontWeight="700" fontSize="10.5" fill="#18181f" textAnchor="middle">Respondido em 2s</text>
       </g>
     </svg>
   );
@@ -234,10 +234,10 @@ export function ConfirmReceiptArt() {
       </g>
 
       {/* lilac mini chip */}
-      <g transform="translate(330, 12)">
-        <rect width="110" height="26" rx="13" fill="#B8A8FF" />
+      <g transform="translate(316, 12)">
+        <rect width="172" height="26" rx="13" fill="#B8A8FF" />
         <circle cx="14" cy="13" r="3" fill="#18181f" />
-        <text x="24" y="17" fontFamily="Inter, sans-serif" fontWeight="600" fontSize="10" fill="#18181f">Notificado · WhatsApp</text>
+        <text x="100" y="17" fontFamily="Inter, sans-serif" fontWeight="600" fontSize="10" fill="#18181f" textAnchor="middle">Notificado · WhatsApp</text>
       </g>
       {/* lime mini chip */}
       <g transform="translate(40, 196)">

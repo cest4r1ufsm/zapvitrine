@@ -8,7 +8,6 @@ import PublicStore from './pages/PublicStore';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import { VerifyEmailPage, VerifyEmailPendingPage } from './pages/VerifyEmailPage';
-import './index.css';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();

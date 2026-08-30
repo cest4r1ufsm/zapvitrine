@@ -100,6 +100,10 @@ model Order {
   customerAddress String?
   scheduledTime   String?
   scheduledAt     DateTime?
+  // Duração personalizada em minutos para ESTE atendimento. Quando preenchida,
+  // substitui Product.duration no cálculo de ocupação da agenda — permite ao
+  // profissional reservar mais (ou menos) tempo que o padrão do serviço.
+  durationOverride Int?
   notes           String?
   status          String        @default("pending") // pending, confirmed, completed, cancelled
   totalPrice      Float?

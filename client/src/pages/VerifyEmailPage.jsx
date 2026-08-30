@@ -5,14 +5,12 @@ import { authAPI } from '../services/api';
 // Page shown when user clicks the verification link from email (/verify-email?token=...)
 export function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
-  const [status, setStatus] = useState('loading'); // loading | success | error
-  const [message, setMessage] = useState('');
   const token = searchParams.get('token');
+  const [status, setStatus] = useState(() => token ? 'loading' : 'error'); // loading | success | error
+  const [message, setMessage] = useState(() => token ? '' : 'Link de verificação inválido.');
 
   useEffect(() => {
     if (!token) {
-      setStatus('error');
-      setMessage('Link de verificação inválido.');
       return;
     }
     authAPI.verifyEmail(token)
@@ -31,7 +29,7 @@ export function VerifyEmailPage() {
           <Link to="/" className="auth-logo-link">
             <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </Link>
-          <span className="auth-eyebrow">— Confirme seu e-mail</span>
+          <span className="auth-eyebrow">Confirme seu e-mail</span>
           <p>Falta só um passo para ativar sua conta</p>
         </div>
 
@@ -127,7 +125,7 @@ export function VerifyEmailPendingPage() {
           <Link to="/" className="auth-logo-link">
             <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </Link>
-          <span className="auth-eyebrow">— Confirme seu e-mail</span>
+          <span className="auth-eyebrow">Confirme seu e-mail</span>
           <p>Falta só um passo para ativar sua conta</p>
         </div>
 

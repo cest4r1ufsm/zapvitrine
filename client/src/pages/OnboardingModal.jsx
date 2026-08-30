@@ -1,68 +1,72 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import UIIcon from '../components/UIIcon';
+import { btnPrimary, btnGlass } from '../styles/buttons';
+import { tint } from '../styles/surfaces';
 
 const STORAGE_KEY = 'agtgestor_onboarding_done';
 
 const STEPS = [
   {
-    icon: '👋',
-    title: 'Bem-vindo ao AGTgestor!',
-    description: 'Você tem em mãos um sistema completo de agendamentos com chatbot no WhatsApp. Em poucos minutos, seus clientes poderão marcar horários direto pelo WhatsApp — de forma automática, sem você precisar fazer nada.',
+    icon: 'home',
+    title: 'Bem-vindo ao AGTGestor',
+    description: 'Você tem em mãos um sistema completo de agendamentos com chatbot no WhatsApp. Em poucos minutos, seus clientes poderão marcar horários por lá. Tudo funciona de forma automática, sem depender de você.',
     tip: null,
     action: null,
   },
   {
-    icon: '🏪',
-    title: 'Configure sua Loja',
+    icon: 'store',
+    title: 'Configure sua loja',
     description: 'Primeiro, vá em "Minha Loja" e preencha suas informações: nome, telefone e endereço. É aqui que você também define os horários de funcionamento para o sistema saber quando oferecer agendamentos.',
-    tip: '💡 Na seção "Configuração de Agenda", ative os dias que você atende e defina os horários de início e fim de cada dia.',
+    tip: 'Na seção "Configuração de agenda", ative os dias que você atende e defina os horários de início e fim de cada dia.',
     action: { label: 'Ir para Minha Loja', path: '/dashboard/loja' },
   },
   {
-    icon: '🛠️',
-    title: 'Cadastre seus Serviços',
-    description: 'Em "Serviços", adicione tudo o que você oferece — corte, barba, manicure, etc. Para cada serviço, defina o preço e a duração em minutos. Isso é essencial: o sistema usa a duração para calcular automaticamente os horários disponíveis.',
-    tip: '💡 Um corte de 30 min + 10 min de intervalo = próximo cliente só pode agendar 40 min depois. Configure isso no campo "Intervalo após".',
+    icon: 'services',
+    title: 'Cadastre seus serviços',
+    description: 'Em "Serviços", adicione tudo o que você oferece, como corte, barba e manicure. Para cada serviço, defina o preço e a duração em minutos. O sistema usa esse tempo para calcular automaticamente os horários disponíveis.',
+    tip: 'Um corte de 30 min + 10 min de intervalo significa que o próximo cliente poderá agendar 40 min depois. Configure isso no campo "Intervalo após".',
     action: { label: 'Ir para Serviços', path: '/dashboard/servicos' },
   },
   {
-    icon: '👥',
-    title: 'Adicione seus Profissionais',
+    icon: 'professionals',
+    title: 'Adicione seus profissionais',
     description: 'Se você tem uma equipe (vários cabeleireiros, manicures, etc.), cadastre cada um em "Profissionais". Quando um cliente agendar pelo WhatsApp, ele poderá escolher com quem quer ser atendido.',
-    tip: '💡 Se você trabalha sozinho, pode pular essa etapa — o sistema funciona perfeitamente sem profissionais cadastrados.',
+    tip: 'Se você trabalha sozinho, pode pular essa etapa. O sistema funciona normalmente sem profissionais cadastrados.',
     action: { label: 'Ir para Profissionais', path: '/dashboard/profissionais' },
   },
   {
-    icon: '🚫',
-    title: 'Bloqueie Horários de Folga',
-    description: 'Em "Bloqueios", você pode marcar datas ou dias em que não vai atender — feriados, férias, dias de folga. O chatbot respeita esses bloqueios e nunca vai oferecer um horário ocupado ao cliente.',
-    tip: '💡 Você pode bloquear "toda segunda-feira" de forma recorrente, ou uma data específica como "24/12". Sem precisar ficar criando serviços falsos para ocupar tempo!',
+    icon: 'blocked',
+    title: 'Bloqueie horários de folga',
+    description: 'Em "Bloqueios", você pode marcar datas ou dias em que não vai atender, como feriados, férias e folgas. O chatbot respeita esses bloqueios e nunca oferece um horário ocupado ao cliente.',
+    tip: 'Você pode bloquear toda segunda-feira de forma recorrente ou uma data específica como 24/12, sem criar serviços falsos para ocupar tempo.',
     action: { label: 'Ir para Bloqueios', path: '/dashboard/bloqueios' },
   },
   {
-    icon: '🤖',
+    icon: 'bot',
     title: 'Conecte o WhatsApp',
     description: 'Em "Chatbot", conecte seu WhatsApp Business escaneando o QR Code. A partir daí, qualquer cliente que mandar mensagem no seu número vai ser atendido automaticamente pelo bot, que vai oferecer os horários disponíveis.',
-    tip: '💡 O chatbot funciona 24h. Se um cliente mandar mensagem às 2h da manhã, o sistema já responde e agenda — você vê tudo na Agenda quando acordar.',
+    tip: 'O chatbot funciona 24h. Se um cliente mandar mensagem durante a madrugada, o sistema responde e agenda; você vê tudo na Agenda quando acordar.',
     action: { label: 'Ir para Chatbot', path: '/dashboard/chatbot' },
   },
   {
-    icon: '📅',
-    title: 'Gerencie sua Agenda',
-    description: 'Na "Agenda", você tem uma visão semanal de todos os agendamentos. Pode confirmar, concluir ou cancelar cada um. Também pode criar agendamentos manualmente — útil para clientes que ligam ou chegam pessoalmente.',
-    tip: '💡 Na seção "Clientes", você tem o histórico completo de cada cliente: quantas vezes veio, quais serviços fez, quando foi a última visita.',
+    icon: 'calendar',
+    title: 'Gerencie sua agenda',
+    description: 'Na "Agenda", você tem uma visão semanal de todos os agendamentos. Pode confirmar, concluir ou cancelar cada um. Também pode criar agendamentos manualmente para clientes que ligam ou chegam pessoalmente.',
+    tip: 'Na seção "Clientes", você encontra o histórico completo de cada cliente: visitas, serviços e data do último atendimento.',
     action: { label: 'Ir para Agenda', path: '/dashboard/agenda' },
   },
   {
-    icon: '🚀',
-    title: 'Tudo pronto!',
+    icon: 'check',
+    title: 'Tudo pronto',
     description: 'Agora é só compartilhar seu número de WhatsApp com os clientes e deixar o sistema trabalhar por você. Sempre que precisar, este tutorial está disponível no menu "Início".',
     tip: null,
     action: null,
   },
 ];
 
-export default function OnboardingModal({ onClose, forceShow = false }) {
+export default function OnboardingModal({ onClose }) {
   const [step, setStep] = useState(0);
   const navigate = useNavigate();
 
@@ -87,7 +91,7 @@ export default function OnboardingModal({ onClose, forceShow = false }) {
         {/* Progress dots */}
         <div style={s.dots}>
           {STEPS.map((_, i) => (
-            <div key={i} style={{ ...s.dot, background: i === step ? '#6C63FF' : i < step ? '#a5b4fc' : '#e5e7eb' }} />
+            <div key={i} style={{ ...s.dot, background: i === step ? 'var(--btn-graphite)' : i < step ? 'var(--tint-border)' : 'var(--border)' }} />
           ))}
         </div>
 
@@ -95,7 +99,7 @@ export default function OnboardingModal({ onClose, forceShow = false }) {
         <div style={s.counter}>{step + 1} de {STEPS.length}</div>
 
         {/* Content */}
-        <div style={s.iconWrap}>{current.icon}</div>
+        <div style={s.iconWrap}><UIIcon name={current.icon} size={34} /></div>
         <h2 style={s.title}>{current.title}</h2>
         <p style={s.description}>{current.description}</p>
 
@@ -115,7 +119,7 @@ export default function OnboardingModal({ onClose, forceShow = false }) {
             </button>
           )}
           {isLast ? (
-            <button style={s.btnPrimary} onClick={handleFinish}>Começar a usar 🚀</button>
+            <button style={s.btnPrimary} onClick={handleFinish}>Começar a usar</button>
           ) : (
             <button style={s.btnPrimary} onClick={() => setStep(s => s + 1)}>Próximo ›</button>
           )}
@@ -157,10 +161,10 @@ const s = {
   iconWrap:    { fontSize: 56, marginBottom: 16, lineHeight: 1 },
   title:       { fontSize: 22, fontWeight: 800, marginBottom: 12, color: '#111', margin: '0 0 12px' },
   description: { fontSize: 15, lineHeight: 1.7, color: '#444', margin: '0 0 16px' },
-  tip:         { background: '#f0efff', border: '1px solid #c4b5fd', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#5b4fff', textAlign: 'left', width: '100%', boxSizing: 'border-box', marginBottom: 8, lineHeight: 1.6 },
+  tip:         { ...tint, padding: '12px 16px', fontSize: 13, textAlign: 'left', width: '100%', boxSizing: 'border-box', marginBottom: 8, lineHeight: 1.6 },
   actions:     { display: 'flex', gap: 8, width: '100%', marginTop: 20, alignItems: 'center', flexWrap: 'wrap' },
-  btnPrimary:  { background: '#6C63FF', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 20px', fontWeight: 700, cursor: 'pointer', fontSize: 14 },
-  btnBack:     { background: '#f3f4f6', color: '#555', border: 'none', borderRadius: 10, padding: '11px 16px', cursor: 'pointer', fontSize: 14 },
-  btnAction:   { background: '#ede9fe', color: '#6C63FF', border: '1px solid #c4b5fd', borderRadius: 10, padding: '11px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600 },
+  btnPrimary:  { ...btnPrimary, padding: '11px 20px', fontWeight: 700, fontSize: 14 },
+  btnBack:     { background: 'var(--btn-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-btn)', padding: '8px 16px', cursor: 'pointer', fontSize: 14, boxShadow: 'var(--btn-glass-shadow)' },
+  btnAction:   { ...btnGlass, padding: '11px 16px', fontSize: 13 },
   skip:        { marginTop: 12, background: 'none', border: 'none', color: '#aaa', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' },
 };

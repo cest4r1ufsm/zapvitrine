@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import PageGuide from '../components/PageGuide';
+import UIIcon from '../components/UIIcon';
+import { btnPrimary } from '../styles/buttons';
+import { avatar } from '../styles/surfaces';
 
 const GUIDE_STEPS = [
   'Clique em <strong>+ Adicionar</strong> e digite o nome do profissional (ex: João, Maria).',
   'Profissionais <strong>ativos</strong> aparecem para o cliente escolher no chatbot antes de agendar.',
-  'Para desativar temporariamente (férias, folga), clique no botão <strong>⏸</strong> — o profissional some do chatbot mas não é excluído.',
+  'Para desativar temporariamente durante férias ou folgas, use a ação de pausar. O profissional deixa de aparecer no chatbot, mas não é excluído.',
   '<strong>Sem profissionais cadastrados</strong>, o chatbot pula essa etapa e agenda normalmente.',
 ];
 
@@ -85,7 +88,7 @@ export default function ProfessionalsPage() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>👥 Profissionais</h1>
+      <h1 style={styles.title}>Profissionais</h1>
       <p style={styles.subtitle}>Gerencie os profissionais da sua equipe. O cliente escolherá o profissional no chatbot antes de agendar.</p>
       <PageGuide pageKey="professionals" title="Como gerenciar profissionais" steps={GUIDE_STEPS} />
 
@@ -125,21 +128,21 @@ export default function ProfessionalsPage() {
                 ) : (
                   <div>
                     <div style={styles.profName}>{prof.name}</div>
-                    <div style={styles.profStatus}>{prof.active ? '✅ Ativo' : '⏸ Inativo'}</div>
+                    <div style={styles.profStatus}>{prof.active ? 'Ativo' : 'Inativo'}</div>
                   </div>
                 )}
               </div>
               <div style={styles.cardActions}>
                 <button style={styles.btnIcon} onClick={() => handleEdit(prof)} title={editingId === prof.id ? 'Salvar' : 'Editar'}>
-                  {editingId === prof.id ? '💾' : '✏️'}
+                  <UIIcon name={editingId === prof.id ? 'check' : 'edit'} />
                 </button>
                 {editingId === prof.id && (
-                  <button style={styles.btnIcon} onClick={() => setEditingId(null)} title="Cancelar">❌</button>
+                  <button style={styles.btnIcon} onClick={() => setEditingId(null)} title="Cancelar"><UIIcon name="close" /></button>
                 )}
                 <button style={styles.btnIcon} onClick={() => handleToggle(prof)} title={prof.active ? 'Desativar' : 'Ativar'}>
-                  {prof.active ? '⏸' : '▶️'}
+                  <UIIcon name={prof.active ? 'pause' : 'play'} size={16} />
                 </button>
-                <button style={{ ...styles.btnIcon, color: '#ef4444' }} onClick={() => handleDelete(prof.id)} title="Remover">🗑️</button>
+                <button style={{ ...styles.btnIcon, color: '#ef4444' }} onClick={() => handleDelete(prof.id)} title="Remover"><UIIcon name="delete" /></button>
               </div>
             </div>
           ))}
@@ -157,15 +160,15 @@ const styles = {
   loading: { textAlign: 'center', padding: 60, color: '#888' },
   form: { display: 'flex', gap: 10, marginBottom: 28 },
   input: { flex: 1, padding: '10px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 15 },
-  inputInline: { padding: '6px 10px', borderRadius: 6, border: '1px solid #6C63FF', fontSize: 15, width: 200 },
-  btnPrimary: { background: '#6C63FF', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', fontSize: 15 },
+  inputInline: { padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', fontSize: 15, width: 200 },
+  btnPrimary: btnPrimary,
   empty: { textAlign: 'center', padding: 48, color: '#666', background: '#f9f9f9', borderRadius: 12 },
   list: { display: 'flex', flexDirection: 'column', gap: 12 },
   card: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '14px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
   cardLeft: { display: 'flex', alignItems: 'center', gap: 14 },
-  avatar: { width: 42, height: 42, borderRadius: '50%', background: '#6C63FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18 },
+  avatar: { ...avatar, width: 42, height: 42, borderRadius: '50%', fontSize: 18 },
   profName: { fontWeight: 600, fontSize: 16 },
   profStatus: { fontSize: 12, color: '#888', marginTop: 2 },
   cardActions: { display: 'flex', gap: 6 },
-  btnIcon: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, padding: '4px 6px', borderRadius: 6 },
+  btnIcon: { width: 34, height: 34, display: 'inline-grid', placeItems: 'center', background: 'var(--btn-surface)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 18, padding: 0, borderRadius: 'var(--radius-btn)', boxShadow: 'var(--btn-glass-shadow)' },
 };

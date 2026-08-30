@@ -95,7 +95,7 @@ export default function RegisterPage() {
           <Link to="/" className="auth-logo-link">
             <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </Link>
-          <span className="auth-eyebrow">— Crie sua conta</span>
+          <span className="auth-eyebrow">Crie sua conta</span>
           <p>Comece grátis em menos de um minuto</p>
         </div>
 

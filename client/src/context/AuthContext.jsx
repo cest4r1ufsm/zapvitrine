@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
 
@@ -6,7 +7,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [store, setStore] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('pedidoprontobot_token')));
 
   useEffect(() => {
     const token = localStorage.getItem('pedidoprontobot_token');
@@ -20,8 +21,6 @@ export function AuthProvider({ children }) {
           localStorage.removeItem('pedidoprontobot_token');
         })
         .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
     }
   }, []);
 

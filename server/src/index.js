@@ -69,8 +69,14 @@ app.use(
   })
 );
 
-// CORS restrito: produção + dev local (Vite na 5007)
-const allowedOrigins = [process.env.APP_URL, 'http://localhost:5007', 'http://localhost:3001'].filter(Boolean);
+// CORS restrito: produção + origens locais usadas pelo Vite neste workspace.
+const allowedOrigins = [
+  process.env.APP_URL,
+  'http://localhost:5007',
+  'http://127.0.0.1:5007',
+  'http://localhost:5008',
+  'http://127.0.0.1:5008',
+].filter(Boolean);
 app.use(cors({ origin: allowedOrigins }));
 
 // Webhook da Stripe TEM que vir ANTES do express.json() para não converter o Buffer para Object

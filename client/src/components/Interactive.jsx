@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 export function Tilt({ children, max = 8, className = '', ...rest }) {
   const ref = useRef(null);
@@ -88,15 +88,75 @@ export function Magnetic({ children, strength = 0.35, className = '', ...rest })
   );
 }
 
-export function ScrollProgress() {
-  const [pct, setPct] = useState(0);
+export function LandingMotion() {
   useEffect(() => {
+    const root = document.querySelector('.vectr-landing');
+    if (!root || !('IntersectionObserver' in window)) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const sections = Array.from(root.querySelectorAll(':scope > section'));
+    const navLinks = Array.from(root.querySelectorAll('.vl-nav-left a[href^="#"]'));
+
+    sections.forEach((section) => section.classList.add('vl-motion-section'));
+
+    const sectionObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) entry.target.classList.add('is-entered');
+      });
+    }, { rootMargin: '0px 0px -14% 0px', threshold: 0.12 });
+
+    const navTargets = navLinks
+      .map((link) => ({ link, target: link.hash ? root.querySelector(link.hash) : null }))
+      .filter(({ target }) => target);
+
+    const navObserver = new IntersectionObserver((entries) => {
+      const activeEntry = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+      if (!activeEntry) return;
+
+      navTargets.forEach(({ link, target }) => {
+        const isCurrent = target === activeEntry.target;
+        link.classList.toggle('is-current', isCurrent);
+        if (isCurrent) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    }, { rootMargin: '-22% 0px -58% 0px', threshold: [0, 0.1, 0.35] });
+
+    sections.forEach((section) => sectionObserver.observe(section));
+    navTargets.forEach(({ target }) => navObserver.observe(target));
+
+    const readyFrame = requestAnimationFrame(() => root.classList.add('motion-ready'));
+
+    return () => {
+      cancelAnimationFrame(readyFrame);
+      sectionObserver.disconnect();
+      navObserver.disconnect();
+      root.classList.remove('motion-ready');
+      sections.forEach((section) => section.classList.remove('vl-motion-section', 'is-entered'));
+      navLinks.forEach((link) => {
+        link.classList.remove('is-current');
+        link.removeAttribute('aria-current');
+      });
+    };
+  }, []);
+
+  return null;
+}
+
+export function ScrollProgress() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
     let raf = 0;
     const update = () => {
       raf = 0;
       const max = document.documentElement.scrollHeight - window.innerHeight;
       const p = max > 0 ? Math.min(1, window.scrollY / max) : 0;
-      setPct(p);
+      node.style.transform = `scaleX(${p})`;
     };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -106,5 +166,5 @@ export function ScrollProgress() {
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
-  return <div className="scroll-progress" style={{ transform: `scaleX(${pct})` }} aria-hidden="true" />;
+  return <div ref={ref} className="scroll-progress" style={{ transform: 'scaleX(0)' }} aria-hidden="true" />;
 }

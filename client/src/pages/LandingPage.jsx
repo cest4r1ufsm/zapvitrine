@@ -1,23 +1,18 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import ShaderMesh from '../components/ShaderMesh';
-import HalftoneScene from '../components/HalftoneScene';
-import TrajectoryArc from '../components/TrajectoryArc';
-import { LinkCardArt, ChatLogArt, ConfirmReceiptArt, IconSalao, IconBarbearia, IconEstetica, IconClinica } from '../components/BrandArt';
+import { LinkCardArt, ChatLogArt, ConfirmReceiptArt } from '../components/BrandArt';
 import CategoryFloating from '../components/CategoryFloating';
-import { Tilt, Magnetic, ScrollProgress } from '../components/Interactive';
-
-const ROTATING_WORDS = ['agenda', 'WhatsApp', 'serviços', 'clientes'];
+import { LandingMotion, ScrollProgress } from '../components/Interactive';
+import UIIcon from '../components/UIIcon';
 
 const FEATURES = [
-  { i: '📅', t: 'Agenda Digital', tag: 'Calendário', d: 'Visualize todos os agendamentos em um calendário organizado. Saiba exatamente o que tem para cada dia.' },
-  { i: '🤖', t: 'Chatbot no WhatsApp', tag: 'Automação', d: 'Um robô atende seus clientes 24h, apresenta seus serviços e registra agendamentos automaticamente.' },
-  { i: '🛠️', t: 'Catálogo de Serviços', tag: 'Catálogo', d: 'Cadastre seus serviços com descrição e preço, organizados por categorias. Tudo exibido para o cliente.' },
-  { i: '🔗', t: 'Link Exclusivo', tag: 'Compartilhar', d: 'Compartilhe seu link nas redes sociais e no cartão de visitas. Seus clientes acessam de qualquer lugar.' },
-  { i: '📊', t: 'Gestão de Pedidos', tag: 'Painel', d: 'Acompanhe, confirme e conclua atendimentos pelo painel. Histórico completo de cada cliente.' },
-  { i: '📲', t: '100% no Celular', tag: 'Mobile', d: 'Funciona perfeitamente no celular, tablet e computador. Gerencie seu negócio de onde estiver.' },
+  { i: 'calendar', t: 'Agenda digital', tag: 'Calendário', d: 'Visualize todos os agendamentos em um calendário organizado. Saiba exatamente o que tem para cada dia.' },
+  { i: 'bot', t: 'Chatbot no WhatsApp', tag: 'Automação', d: 'Um robô atende seus clientes 24h, apresenta seus serviços e registra agendamentos automaticamente.' },
+  { i: 'services', t: 'Catálogo de serviços', tag: 'Catálogo', d: 'Cadastre seus serviços com descrição e preço, organizados por categorias. Tudo exibido para o cliente.' },
+  { i: 'link', t: 'Link exclusivo', tag: 'Compartilhar', d: 'Compartilhe seu link nas redes sociais e no cartão de visitas. Seus clientes acessam de qualquer lugar.' },
+  { i: 'orders', t: 'Gestão de pedidos', tag: 'Painel', d: 'Acompanhe, confirme e conclua atendimentos pelo painel. Histórico completo de cada cliente.' },
+  { i: 'phone', t: 'Funciona no celular', tag: 'Mobile', d: 'Funciona perfeitamente no celular, tablet e computador. Gerencie seu negócio de onde estiver.' },
 ];
 
 const PROCESS = [
@@ -76,15 +71,15 @@ const CATEGORIES = [
     id: 'micro',
     label: 'Qualquer microempresa',
     title: 'Agenda para qualquer microempresa',
-    desc: 'Personal trainers, professores particulares, oficinas, pet shops, autônomos — qualquer serviço com agenda cabe aqui.',
+    desc: 'Personal trainers, professores particulares, oficinas, pet shops e autônomos. Se o serviço depende de agenda, cabe aqui.',
     services: ['Sessões', 'Aulas particulares', 'Atendimentos', 'Visitas', 'Reservas', 'Serviços avulsos'],
   },
 ];
 
 const TESTIMONIALS = [
-  { name: 'Mariana Silva', role: 'Salão Studio M', avatar: '👩🏽', text: 'Em duas semanas dobrei minha agenda. O bot responde no horário que durmo e ainda fecho cliente.', rating: 5 },
-  { name: 'Carlos Eduardo', role: 'Barbearia Príncipe', avatar: '💈', text: 'Saí da agenda no caderno. Hoje meus clientes agendam sozinhos pelo link e não esqueço mais ninguém.', rating: 5 },
-  { name: 'Júlia Mendes', role: 'Esmalteria Lume', avatar: '💅', text: 'Antes perdia 3-4 clientes por dia sem responder. Agora o WhatsApp atende e eu só recebo confirmado.', rating: 5 },
+  { name: 'Mariana Silva', role: 'Salão Studio M', avatar: 'MS', text: 'Em duas semanas dobrei minha agenda. O bot responde no horário que durmo e ainda fecho cliente.', rating: 5 },
+  { name: 'Carlos Eduardo', role: 'Barbearia Príncipe', avatar: 'CE', text: 'Saí da agenda no caderno. Hoje meus clientes agendam sozinhos pelo link e não esqueço mais ninguém.', rating: 5 },
+  { name: 'Júlia Mendes', role: 'Esmalteria Lume', avatar: 'JM', text: 'Antes perdia 3-4 clientes por dia sem responder. Agora o WhatsApp atende e eu só recebo confirmado.', rating: 5 },
 ];
 
 const COST_STEPS = [
@@ -101,7 +96,7 @@ const COST_STEPS = [
   {
     n: '03',
     t: 'O resultado',
-    d: 'Agenda mais cheia, menos no-shows, mais tempo livre. Você atende quem realmente quer ser atendido — sem perder tempo com mensagens que nunca viram cliente.',
+    d: 'Agenda mais cheia, menos faltas e mais tempo livre. Você atende quem realmente quer ser atendido, sem gastar energia com mensagens que nunca viram cliente.',
   },
 ];
 
@@ -112,7 +107,7 @@ const FAQ = [
   { q: 'Meus clientes precisam baixar algum app?', a: 'Não. O cliente acessa pelo link que você compartilha ou conversa direto pelo WhatsApp. Tudo pelo navegador, sem instalação.' },
   { q: 'E se eu tiver mais de um profissional?', a: 'Você cria as agendas de cada profissional. O cliente escolhe com quem agendar. Cada um vê só os próprios horários no painel.' },
   { q: 'Posso cancelar quando quiser?', a: 'Sim. Cancela em 1 clique, sem multa, sem ligar para suporte. Você mantém o acesso até o fim do período pago.' },
-  { q: 'Funciona para qual tipo de negócio?', a: 'Salões, barbearias, estética, manicure, clínicas, personal trainers, professores particulares, oficinas — qualquer serviço com agenda.' },
+  { q: 'Funciona para qual tipo de negócio?', a: 'Salões, barbearias, estética, manicure, clínicas, personal trainers, professores particulares e oficinas. O AGTGestor funciona para qualquer serviço com agenda.' },
 ];
 
 function useInView(threshold = 0.15) {
@@ -122,7 +117,11 @@ function useInView(threshold = 0.15) {
     const node = ref.current;
     if (!node) return;
     const obs = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && setInView(true)),
+      (entries) => entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        setInView(true);
+        obs.unobserve(e.target);
+      }),
       { threshold }
     );
     obs.observe(node);
@@ -131,76 +130,78 @@ function useInView(threshold = 0.15) {
   return [ref, inView];
 }
 
-function Reveal({ children, delay = 0, as: Tag = 'div', className = '', ...rest }) {
+function Reveal({ children, delay = 0, as = 'div', className = '', ...rest }) {
   const [ref, inView] = useInView();
-  return (
-    <Tag
-      ref={ref}
-      className={`reveal ${inView ? 'in-view' : ''} ${className}`}
-      style={{ '--reveal-delay': `${delay}ms` }}
-      {...rest}
-    >
-      {children}
-    </Tag>
-  );
+  return createElement(as, {
+    ref,
+    className: `reveal ${inView ? 'in-view' : ''} ${className}`,
+    style: { '--reveal-delay': `${delay}ms` },
+    ...rest,
+  }, children);
 }
 
-function PhoneMockup() {
-  const messages = [
-    { from: 'bot', text: 'Olá! 👋 Bem-vindo ao Salão Studio M. Quer agendar um horário?' },
-    { from: 'user', text: 'Sim, queria fazer corte e barba' },
-    { from: 'bot', text: 'Ótimo! Temos disponível:\n• Sábado 14h00\n• Sábado 15h30\n• Domingo 10h00' },
-    { from: 'user', text: 'Sábado 14h fica perfeito' },
-    { from: 'bot', text: '✅ Agendado! Corte + Barba, sábado às 14h. Te espero!' },
+function HeroProductProof() {
+  const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+  const appointments = [
+    { day: 0, row: 1, label: 'Escova', name: 'Beatriz', status: 'confirmed' },
+    { day: 1, row: 0, label: 'Coloração', name: 'Camila', status: 'pending' },
+    { day: 2, row: 2, label: 'Hidratação', name: 'Larissa', status: 'confirmed' },
+    { day: 3, row: 1, label: 'Corte feminino', name: 'Marina', status: 'active' },
+    { day: 4, row: 0, label: 'Mechas', name: 'Fernanda', status: 'confirmed' },
   ];
   return (
-    <div className="phone-mockup" aria-hidden="true">
-      <div className="phone-frame">
-        <div className="phone-notch" />
-        <div className="phone-screen">
-          <div className="wa-header">
-            <div className="wa-avatar">💈</div>
-            <div className="wa-meta">
-              <div className="wa-name">AGTGestor · Studio M</div>
-              <div className="wa-status"><span className="wa-dot" /> online agora</div>
+    <div className="hero-product-proof" aria-label="Demonstração de conversa transformada em agendamento">
+      <div className="hero-product-tabs" aria-hidden="true">
+        <span className="active"><UIIcon name="calendar" size={17} /> Agenda</span>
+        <span><UIIcon name="clients" size={17} /> Clientes</span>
+        <span><UIIcon name="services" size={17} /> Serviços</span>
+        <span><UIIcon name="professionals" size={17} /> Profissionais</span>
+      </div>
+      <div className="hero-calendar" aria-hidden="true">
+        <div className="hero-calendar-meta"><span>Hoje</span><strong>12 a 18 de maio</strong></div>
+        <div className="hero-calendar-grid">
+          <div className="hero-calendar-time" />
+          {days.map((day, index) => <div className={`hero-calendar-day ${index === 3 ? 'active' : ''}`} key={day}>{day}<small>{12 + index} maio</small></div>)}
+          {['09:00', '11:00', '13:00'].map((time, row) => (
+            <div className="hero-calendar-row" key={time}>
+              <div className="hero-calendar-time">{time}</div>
+              {days.map((day, dayIndex) => {
+                const item = appointments.find((appointment) => appointment.day === dayIndex && appointment.row === row);
+                return <div className="hero-calendar-cell" key={`${day}-${time}`}>{item && <div className={`hero-appointment ${item.status}`}><strong>{item.label}</strong><span>{item.name}</span></div>}</div>;
+              })}
             </div>
-          </div>
-          <div className="wa-thread">
-            {messages.map((m, i) => (
-              <div key={i} className={`wa-bubble wa-${m.from}`} style={{ animationDelay: `${0.3 + i * 0.5}s` }}>
-                {m.text}
-              </div>
-            ))}
-            <div className="wa-typing" style={{ animationDelay: `${0.3 + messages.length * 0.5}s` }}>
-              <span /><span /><span />
-            </div>
-          </div>
+          ))}
         </div>
       </div>
-      <div className="phone-floating phone-floating-1">
-        <div className="pf-icon">📅</div>
-        <div className="pf-text"><strong>Agendamento confirmado</strong><span>Sáb · 14h</span></div>
+      <div className="hero-phone-asset">
+        <img src="/assets/agtgestor-phone-product-proof.png" alt="Celular com conversa e agendamento confirmado no AGTGestor" />
       </div>
-      <div className="phone-floating phone-floating-2">
-        <div className="pf-icon">⚡</div>
-        <div className="pf-text"><strong>Resposta automática</strong><span>2.3 segundos</span></div>
-      </div>
+      <svg className="hero-proof-line" viewBox="0 0 260 230" aria-hidden="true">
+        <path d="M220 6V84H88V224" />
+        <circle cx="220" cy="6" r="4" />
+        <circle cx="88" cy="224" r="4" />
+      </svg>
     </div>
   );
 }
 
-function RotatingWord() {
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setIdx((i) => (i + 1) % ROTATING_WORDS.length), 2400);
-    return () => clearInterval(id);
-  }, []);
+function ProcessVisual() {
   return (
-    <span className="rotating-word" aria-live="polite">
-      {ROTATING_WORDS.map((w, i) => (
-        <span key={w} className={`rotating-word-item ${i === idx ? 'active' : ''}`}>{w}</span>
-      ))}
-    </span>
+    <div className="process-visual" aria-label="Fluxo do atendimento até a agenda">
+      <div className="process-visual-line" aria-hidden="true" />
+      <div className="process-visual-step">
+        <span><UIIcon name="chat" /></span>
+        <div><small>Mensagem recebida</small><strong>Quero agendar um corte</strong></div>
+      </div>
+      <div className="process-visual-step">
+        <span><UIIcon name="bot" /></span>
+        <div><small>Atendimento automático</small><strong>Quinta-feira, 14:00</strong></div>
+      </div>
+      <div className="process-visual-step active">
+        <span><UIIcon name="check" /></span>
+        <div><small>Agenda atualizada</small><strong>Marina · Corte feminino</strong></div>
+      </div>
+    </div>
   );
 }
 
@@ -225,48 +226,6 @@ function ProcessAccordion() {
           )}
         </button>
       ))}
-    </div>
-  );
-}
-
-function CategoryTabs() {
-  const [active, setActive] = useState('salao');
-  const current = CATEGORIES.find((c) => c.id === active);
-  const ICONS = {
-    salao: <IconSalao />,
-    barbearia: <IconBarbearia />,
-    estetica: <IconEstetica />,
-    clinica: <IconClinica />,
-  };
-  return (
-    <div className="cat2">
-      <ul className="cat2-list">
-        {CATEGORIES.map((c) => (
-          <li key={c.id}>
-            <button
-              className={`cat2-tab ${active === c.id ? 'active' : ''}`}
-              onClick={() => setActive(c.id)}
-              onMouseEnter={() => setActive(c.id)}
-            >
-              <span className="cat2-tab-dash" aria-hidden="true" />
-              <span className="cat2-tab-label">{c.label}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="cat2-content" key={current.id}>
-        <div className="cat2-art">{ICONS[current.id]}</div>
-        <h3 className="cat2-title">{current.title}</h3>
-        <p className="cat2-desc">{current.desc}</p>
-        <ul className="cat2-services">
-          {current.services.map((s, i) => (
-            <li key={s} style={{ '--i': i }}>
-              <span className="cat2-services-n">{String(i + 1).padStart(2, '0')}</span>
-              <span className="cat2-services-t">{s}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }
@@ -337,12 +296,13 @@ export default function LandingPage() {
 
   return (
     <div className="vectr-landing landing">
-      <ShaderMesh />
       <ScrollProgress />
+      <LandingMotion />
 
       {/* ============ FLOATING PILL NAV ============ */}
       <nav className={`vl-nav ${scrolled ? 'scrolled' : ''}`}>
         <div className="vl-nav-left">
+          <a href="#features">Recursos</a>
           <a href="#process">Como funciona</a>
           <a href="#categories">Para quem</a>
         </div>
@@ -355,7 +315,7 @@ export default function LandingPage() {
           ) : (
             <>
               <Link to="/login" className="vl-pill vl-pill-soft">Entrar</Link>
-              <Link to="/register" className="vl-pill vl-pill-lime">Teste Grátis</Link>
+              <Link to="/register" className="vl-pill vl-pill-lime">Criar conta</Link>
             </>
           )}
         </div>
@@ -365,26 +325,23 @@ export default function LandingPage() {
       <section className="vl-hero">
         <div className="vl-hero-text">
           <Reveal as="h1" className="vl-hero-title">
-            Do caderno<br />
-            ao <span className="vl-hero-italic">piloto automático.</span>
+            Seu WhatsApp atende.<br />
+            Sua agenda se organiza.
           </Reveal>
           <Reveal as="p" delay={120} className="vl-hero-sub">
-            Velocidade do WhatsApp. Organização de calendário.<br />
-            Um robô que atende seus clientes 24h e fecha agendamentos sozinho.
+            Agendamentos, serviços, profissionais e clientes em um só lugar, com atendimento automático pelo WhatsApp.
           </Reveal>
           <Reveal className="vl-hero-cta" delay={200}>
             <Link to="/register" className="vl-pill vl-pill-white vl-pill-lg">
-              Começar grátis →
+              Criar conta
             </Link>
             <a href="#process" className="vl-pill vl-pill-lime vl-pill-lg">Ver como funciona</a>
           </Reveal>
         </div>
         <div className="vl-hero-scene-wrap vl-hero-scene-phone">
-          <Tilt max={8}>
-            <PhoneMockup />
-          </Tilt>
+          <HeroProductProof />
           <a href="#process" className="vl-scroll-cue">
-            <span>Role para descobrir nosso processo</span>
+            <span>Conheça o fluxo</span>
             <span className="vl-scroll-cue-line" />
           </a>
         </div>
@@ -397,12 +354,7 @@ export default function LandingPage() {
             <ProcessAccordion />
           </Reveal>
           <Reveal className="vl-process-scene" delay={200}>
-            <HalftoneScene />
-            <svg className="vl-process-chevron" viewBox="0 0 200 200" aria-hidden="true">
-              <path d="M50 40 L130 100 L50 160" stroke="#18181f" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
-              <path d="M80 40 L160 100 L80 160" stroke="#18181f" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.45" />
-              <path d="M105 40 L185 100 L105 160" stroke="#18181f" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.2" />
-            </svg>
+            <ProcessVisual />
           </Reveal>
         </div>
       </section>
@@ -456,7 +408,7 @@ export default function LandingPage() {
         <div className="vl-search-row vl-search-row-rev">
           <Reveal as="h2" className="vl-search-title">Confiança é a moeda</Reveal>
           <Reveal as="p" delay={100} className="vl-search-text">
-            Mostramos seus serviços, preços, horários — exatamente como você cadastrou. O cliente confirma antes de fechar. Você confirma do seu lado. Sem mal-entendido, sem cliente sem aparecer.
+            Mostramos seus serviços, preços e horários exatamente como você cadastrou. O cliente revisa tudo antes de fechar e você confirma do seu lado. Menos mal-entendidos e menos faltas.
           </Reveal>
           <Reveal delay={200} className="vl-search-image vl-search-img-2">
             <ConfirmReceiptArt />
@@ -472,7 +424,7 @@ export default function LandingPage() {
         <div className="vl-testimonials-grid">
           {TESTIMONIALS.map((t, i) => (
             <Reveal key={t.name} delay={i * 80} className="vl-testimonial">
-              <div className="vl-testimonial-stars">{'★'.repeat(t.rating)}</div>
+              <div className="vl-testimonial-rating" aria-label={`${t.rating} de 5`}><span /><span /><span /><span /><span /></div>
               <p className="vl-testimonial-text">"{t.text}"</p>
               <div className="vl-testimonial-author">
                 <div className="vl-testimonial-avatar">{t.avatar}</div>
@@ -505,18 +457,15 @@ export default function LandingPage() {
           O custo de <span className="vl-italic">ficar parado.</span>
         </Reveal>
         <Reveal as="p" delay={100} className="vl-cost-desc">
-          Quando você não responde, o cliente vai pro concorrente. A cada semana sem sistema, você perde clientes que nem percebe que estava perdendo. O AGTGestor remove essa fricção. Não é um software a mais — é a engrenagem que sincroniza seu tempo com a demanda real do mercado.
+          Quando você não responde, o cliente vai para o concorrente. A cada semana sem sistema, você perde clientes sem nem perceber. O AGTGestor elimina essa fricção. Não é apenas mais um software. É a engrenagem que sincroniza seu tempo com a demanda real do mercado.
         </Reveal>
         <Reveal delay={200}>
           <BigAccordion items={COST_STEPS} defaultOpen={0} />
         </Reveal>
-        <div className="vl-cost-trajectory">
-          <TrajectoryArc />
-        </div>
       </section>
 
       {/* ============ FEATURES GRID (preserved) ============ */}
-      <section className="vl-features">
+      <section className="vl-features" id="features">
         <Reveal as="h2" className="vl-section-title">
           Tudo o que você precisa, <span className="vl-italic">nada que não use.</span>
         </Reveal>
@@ -524,10 +473,10 @@ export default function LandingPage() {
           {FEATURES.map((f, idx) => (
             <Reveal key={f.t} delay={idx * 60} className="vl-feature">
               <div className="vl-feature-head">
-                <div className="vl-feature-icon">{f.i}</div>
+                <div className="vl-feature-icon"><UIIcon name={f.i} size={22} /></div>
                 <span className="vl-feature-n">{String(idx + 1).padStart(2, '0')}</span>
               </div>
-              <span className="vl-feature-tag">— {f.tag}</span>
+              <span className="vl-feature-tag">{f.tag}</span>
               <h3>{f.t}</h3>
               <p>{f.d}</p>
             </Reveal>
@@ -544,7 +493,7 @@ export default function LandingPage() {
           Um plano completo. Tudo incluso. Sete dias grátis para testar.
         </Reveal>
         <Reveal className="vl-pricing-card" delay={160}>
-          <div className="vl-pricing-tag">⭐ Mais popular</div>
+          <div className="vl-pricing-tag">Plano completo</div>
           <h3>Profissional</h3>
           <div className="vl-pricing-price">R$27,90<span>/mês</span></div>
           <p className="vl-pricing-note">7 dias grátis, sem cartão de crédito</p>
@@ -557,9 +506,7 @@ export default function LandingPage() {
             <li>Link exclusivo da sua agenda</li>
             <li>Suporte prioritário</li>
           </ul>
-          <Magnetic>
-            <Link to="/register" className="vl-pill vl-pill-dark vl-pill-block">Começar Teste Grátis</Link>
-          </Magnetic>
+          <Link to="/register" className="vl-pill vl-pill-dark vl-pill-block">Começar Teste Grátis</Link>
         </Reveal>
       </section>
 
@@ -586,9 +533,7 @@ export default function LandingPage() {
           Em 5 minutos seu WhatsApp já está atendendo sozinho.
         </Reveal>
         <Reveal className="vl-final-cta" delay={160}>
-          <Magnetic>
-            <Link to="/register" className="vl-pill vl-pill-dark vl-pill-lg">Criar conta grátis</Link>
-          </Magnetic>
+          <Link to="/register" className="vl-pill vl-pill-dark vl-pill-lg">Criar conta grátis</Link>
           <a href="#pricing" className="vl-pill vl-pill-soft vl-pill-lg">Ver preços</a>
         </Reveal>
         <Reveal as="p" delay={240} className="vl-final-trust">

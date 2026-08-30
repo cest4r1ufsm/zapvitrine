@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { storeAPI, categoriesAPI, productsAPI, adminAPI, ordersAPI, whatsappAPI, UPLOADS_URL } from '../services/api';
@@ -9,6 +9,9 @@ import ClientsPage from './ClientsPage';
 import AgendaPage from './AgendaPage';
 import OnboardingModal, { useOnboarding, STORAGE_KEY as ONBOARDING_KEY } from './OnboardingModal';
 import PageGuide from '../components/PageGuide';
+import UIIcon from '../components/UIIcon';
+import { btnGlass } from '../styles/buttons';
+import { panel } from '../styles/surfaces';
 
 function Sidebar({ open, onClose }) {
   const { user, store, logout } = useAuth();
@@ -33,52 +36,55 @@ function Sidebar({ open, onClose }) {
         <p>{store?.name || 'Minha Agenda'}</p>
       </div>
       <nav className="sidebar-nav">
+        <span className="sidebar-group-label">Visão geral</span>
         <Link to="/dashboard" className={`sidebar-link${isActive('/dashboard') && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/servicos') && !isActive('/dashboard/agenda') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">🏠</span> Início
-        </Link>
-        <Link to="/dashboard/loja" className={`sidebar-link${isActive('/dashboard/loja') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">🏪</span> Minha Loja
-        </Link>
-        <Link to="/dashboard/categorias" className={`sidebar-link${isActive('/dashboard/categorias') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">📁</span> Categorias
-        </Link>
-        <Link to="/dashboard/servicos" className={`sidebar-link${isActive('/dashboard/servicos') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">🛠️</span> Serviços
+          <span className="icon"><UIIcon name="home" /></span> Início
         </Link>
         <Link to="/dashboard/agenda" className={`sidebar-link${isActive('/dashboard/agenda') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">📅</span> Agenda
+          <span className="icon"><UIIcon name="calendar" /></span> Agenda
         </Link>
-        <Link to="/dashboard/chatbot" className={`sidebar-link${isActive('/dashboard/chatbot') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">🤖</span> Chatbot
-        </Link>
-        <Link to="/dashboard/pedidos" className={`sidebar-link${isActive('/dashboard/pedidos') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">📊</span> Pedidos
+        <span className="sidebar-group-label">Operação</span>
+        <Link to="/dashboard/servicos" className={`sidebar-link${isActive('/dashboard/servicos') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="services" /></span> Serviços
         </Link>
         <Link to="/dashboard/profissionais" className={`sidebar-link${isActive('/dashboard/profissionais') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">👥</span> Profissionais
-        </Link>
-        <Link to="/dashboard/bloqueios" className={`sidebar-link${isActive('/dashboard/bloqueios') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">🚫</span> Bloqueios
+          <span className="icon"><UIIcon name="professionals" /></span> Profissionais
         </Link>
         <Link to="/dashboard/clientes" className={`sidebar-link${isActive('/dashboard/clientes') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">📇</span> Clientes
+          <span className="icon"><UIIcon name="clients" /></span> Clientes
+        </Link>
+        <Link to="/dashboard/chatbot" className={`sidebar-link${isActive('/dashboard/chatbot') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="bot" /></span> Chatbot
+        </Link>
+        <span className="sidebar-group-label">Negócio</span>
+        <Link to="/dashboard/loja" className={`sidebar-link${isActive('/dashboard/loja') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="store" /></span> Minha loja
+        </Link>
+        <Link to="/dashboard/categorias" className={`sidebar-link${isActive('/dashboard/categorias') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="categories" /></span> Categorias
+        </Link>
+        <Link to="/dashboard/pedidos" className={`sidebar-link${isActive('/dashboard/pedidos') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="orders" /></span> Pedidos
+        </Link>
+        <Link to="/dashboard/bloqueios" className={`sidebar-link${isActive('/dashboard/bloqueios') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="blocked" /></span> Bloqueios
         </Link>
         <Link to="/dashboard/billing" className={`sidebar-link${isActive('/dashboard/billing') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon">💳</span> Assinatura
+          <span className="icon"><UIIcon name="billing" /></span> Assinatura
         </Link>
         {user?.role === 'admin' && (
           <Link to="/dashboard/admin" className={`sidebar-link${isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
-            <span className="icon">⚙️</span> Admin
+            <span className="icon"><UIIcon name="admin" /></span> Admin
           </Link>
         )}
       </nav>
       <div className="sidebar-footer">
         <button className="theme-toggle-btn" onClick={toggleTheme}>
-          <span className="icon">{theme === 'light' ? '🌙' : '☀️'}</span>
+          <span className="icon"><UIIcon name="theme" /></span>
           {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
         </button>
         <button className="sidebar-link" onClick={() => { logout(); navigate('/'); }}>
-          <span className="icon">🚪</span> Sair
+          <span className="icon"><UIIcon name="logout" /></span> Sair
         </button>
       </div>
     </aside>
@@ -102,26 +108,26 @@ function OnboardingChecklist({ products, store, professionals }) {
   if (dismissed) return null;
 
   return (
-    <div style={{ background: allDone ? '#f0fdf4' : '#f8f8ff', border: `1px solid ${allDone ? '#86efac' : '#c4b5fd'}`, borderRadius: 14, padding: '20px 24px', marginBottom: 24 }}>
+    <div className={`onboarding-checklist${allDone ? ' complete' : ''}`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>{allDone ? '🎉 Configuração completa!' : '🚀 Configure seu sistema'}</h3>
+          <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>{allDone ? 'Configuração completa' : 'Configure seu sistema'}</h3>
           <p style={{ margin: 0, fontSize: 13, color: '#666' }}>{allDone ? 'Seu sistema está pronto para receber agendamentos.' : `${completed} de ${steps.length} etapas concluídas`}</p>
         </div>
-        {allDone && <button onClick={() => { setDismissed(true); localStorage.setItem('agtgestor_checklist_done','true'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 20 }}>✕</button>}
+        {allDone && <button className="btn-icon" aria-label="Fechar configuração" onClick={() => { setDismissed(true); localStorage.setItem('agtgestor_checklist_done','true'); }}><UIIcon name="close" /></button>}
       </div>
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {steps.map((step, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', borderRadius: 10, padding: '10px 14px', border: `1px solid ${step.done ? '#86efac' : '#e5e7eb'}`, cursor: step.done ? 'default' : 'pointer' }}
             onClick={() => !step.done && navigate(step.path)}>
             <div style={{ width: 28, height: 28, borderRadius: '50%', background: step.done ? '#10b981' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14, color: step.done ? '#fff' : '#aaa', fontWeight: 700 }}>
-              {step.done ? '✓' : i + 1}
+              {step.done ? <UIIcon name="check" size={15} /> : i + 1}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14, color: step.done ? '#059669' : '#333', textDecoration: step.done ? 'line-through' : 'none' }}>{step.label}</div>
               <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{step.desc}</div>
             </div>
-            {!step.done && <span style={{ color: '#6C63FF', fontSize: 13, fontWeight: 600 }}>Configurar →</span>}
+            {!step.done && <span style={{ color: 'var(--ink-accent)', fontSize: 13, fontWeight: 600 }}>Configurar →</span>}
           </div>
         ))}
       </div>
@@ -156,55 +162,55 @@ function DashboardHome() {
       {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
       <div className="page-header">
         <div>
-          <h1>Olá, {store?.name || 'Lojista'}! 👋</h1>
-          <p>Aqui está o resumo da sua vitrine</p>
+          <h1>Bom dia, {store?.name || 'Lojista'}</h1>
+          <p>Aqui está o que precisa da sua atenção hoje.</p>
         </div>
         <button onClick={() => { localStorage.removeItem(ONBOARDING_KEY); setShowOnboarding(true); }}
-          style={{ background: '#f0efff', border: '1px solid #c4b5fd', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: '#6C63FF', fontWeight: 600 }}>
-          📖 Ver tutorial
+          style={{ ...btnGlass, padding: '7px 14px', fontSize: 13 }}>
+          Ver tutorial
         </button>
       </div>
       <OnboardingChecklist products={products} store={store} professionals={professionals} />
 
       <div className="store-link-card">
-        <h3>🔗 Link da sua vitrine</h3>
+        <h3><UIIcon name="link" size={18} /> Link da sua vitrine</h3>
         <div className="store-link-url">
           <span style={{ flex: 1 }}>{storeUrl}</span>
           <button className="btn btn-primary btn-sm" onClick={copyLink}>
-            {copied ? '✅ Copiado!' : '📋 Copiar'}
+            <UIIcon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copiado' : 'Copiar'}
           </button>
           <a href={storeUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
-            🔍 Abrir
+            <UIIcon name="open" size={16} /> Abrir loja
           </a>
         </div>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon">🛠️</div>
+          <div className="stat-icon"><UIIcon name="services" /></div>
           <div className="stat-value">{products.length}</div>
           <div className="stat-label">Serviços cadastrados</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">📁</div>
+          <div className="stat-icon"><UIIcon name="categories" /></div>
           <div className="stat-value">{categories.length}</div>
           <div className="stat-label">Categorias</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">✅</div>
+          <div className="stat-icon"><UIIcon name="check" /></div>
           <div className="stat-value">{products.filter(p => p.active).length}</div>
           <div className="stat-label">Serviços ativos</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">📱</div>
-          <div className="stat-value">{store?.phone ? '✓' : '✗'}</div>
+          <div className="stat-icon"><UIIcon name="phone" /></div>
+          <div className="stat-value stat-value-status">{store?.phone ? 'Ativo' : 'Pendente'}</div>
           <div className="stat-label">WhatsApp configurado</div>
         </div>
       </div>
 
       {(!store?.phone || products.length === 0) && (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <h3 style={{ marginBottom: '12px' }}>🚀 Complete sua vitrine!</h3>
+          <h3 style={{ marginBottom: '12px' }}>Complete sua configuração</h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>
             {!store?.phone && 'Configure seu WhatsApp em "Minha Loja". '}
             {products.length === 0 && 'Adicione seus primeiros serviços em "Serviços".'}
@@ -219,15 +225,55 @@ function DashboardHome() {
   );
 }
 
+const SLOT_INTERVALS = [15, 20, 30, 45, 60];
+
+const DEFAULT_SCHED = { slotInterval: 30, hours: { monday:{active:true,open:'09:00',close:'18:00'}, tuesday:{active:true,open:'09:00',close:'18:00'}, wednesday:{active:true,open:'09:00',close:'18:00'}, thursday:{active:true,open:'09:00',close:'18:00'}, friday:{active:true,open:'09:00',close:'18:00'}, saturday:{active:true,open:'09:00',close:'13:00'}, sunday:{active:false,open:'09:00',close:'18:00'} } };
+
+const DAY_NAMES = [{key:'monday',label:'Segunda'},{key:'tuesday',label:'Terça'},{key:'wednesday',label:'Quarta'},{key:'thursday',label:'Quinta'},{key:'friday',label:'Sexta'},{key:'saturday',label:'Sábado'},{key:'sunday',label:'Domingo'}];
+
+function isValidTime(value) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function timeToMinutes(value) {
+  const [h, m] = value.split(':');
+  return parseInt(h, 10) * 60 + parseInt(m, 10);
+}
+
+// Devolve SEMPRE uma configuração completa: slotInterval válido e os 7 dias
+// com active/open/close preenchidos, caindo no padrão quando faltar ou for inválido.
+function normalizeSched(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const interval = parseInt(src.slotInterval, 10);
+  const rawHours = src.hours && typeof src.hours === 'object' ? src.hours : {};
+  const hours = {};
+  DAY_NAMES.forEach(({ key }) => {
+    const fallback = DEFAULT_SCHED.hours[key];
+    const day = rawHours[key] && typeof rawHours[key] === 'object' ? rawHours[key] : {};
+    hours[key] = {
+      active: typeof day.active === 'boolean' ? day.active : fallback.active,
+      open: isValidTime(day.open) ? day.open : fallback.open,
+      close: isValidTime(day.close) ? day.close : fallback.close,
+    };
+  });
+  return { slotInterval: SLOT_INTERVALS.includes(interval) ? interval : DEFAULT_SCHED.slotInterval, hours };
+}
+
 function StoreSettings() {
   const { store, refreshStore } = useAuth();
-  const DEFAULT_SCHED = { slotInterval: 30, hours: { monday:{active:true,open:'09:00',close:'18:00'}, tuesday:{active:true,open:'09:00',close:'18:00'}, wednesday:{active:true,open:'09:00',close:'18:00'}, thursday:{active:true,open:'09:00',close:'18:00'}, friday:{active:true,open:'09:00',close:'18:00'}, saturday:{active:true,open:'09:00',close:'13:00'}, sunday:{active:false,open:'09:00',close:'18:00'} } };
-  const [form, setForm] = useState({ name: '', slug: '', description: '', phone: '', address: '', themeColor: '#6C63FF', businessHours: '' });
-  const [sched, setSched] = useState(DEFAULT_SCHED);
-  const DAY_NAMES = [{key:'monday',label:'Segunda'},{key:'tuesday',label:'Terça'},{key:'wednesday',label:'Quarta'},{key:'thursday',label:'Quinta'},{key:'friday',label:'Sexta'},{key:'saturday',label:'Sábado'},{key:'sunday',label:'Domingo'}];
+  const [form, setForm] = useState({ name: '', slug: '', description: '', phone: '', address: '', themeColor: '#2B3441', businessHours: '' });
+  const [sched, setSched] = useState(() => {
+    try {
+      return normalizeSched(store?.schedulingConfig ? JSON.parse(store.schedulingConfig) : null);
+    } catch {
+      return normalizeSched(null);
+    }
+  });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
+  const [dayErrors, setDayErrors] = useState({});
 
   useEffect(() => {
     if (store) {
@@ -237,27 +283,64 @@ function StoreSettings() {
         description: store.description || '',
         phone: store.phone || '',
         address: store.address || '',
-        themeColor: store.themeColor || '#6C63FF',
+        themeColor: store.themeColor || '#2B3441',
         businessHours: store.businessHours || '',
       });
       if (store.schedulingConfig) {
-        try { setSched(JSON.parse(store.schedulingConfig)); } catch {}
+        try {
+          setSched(normalizeSched(JSON.parse(store.schedulingConfig)));
+          setWarning('');
+        } catch {
+          setSched(normalizeSched(null));
+          setWarning('Não foi possível ler a configuração de agenda salva. Carregamos os horários padrão. Revise os dias abaixo e clique em Salvar Alterações.');
+        }
+      } else {
+        setSched(normalizeSched(null));
       }
     }
   }, [store]);
 
+  const clearDayError = (key) => setDayErrors(prev => {
+    if (!prev[key]) return prev;
+    const next = { ...prev };
+    delete next[key];
+    return next;
+  });
+
+  const validateSched = () => {
+    const errs = {};
+    DAY_NAMES.forEach(({ key, label }) => {
+      const day = sched.hours?.[key];
+      if (!day || !day.active) return;
+      if (!isValidTime(day.open) || !isValidTime(day.close)) {
+        errs[key] = `${label}: preencha os horários de abertura e fechamento`;
+      } else if (timeToMinutes(day.open) >= timeToMinutes(day.close)) {
+        errs[key] = `${label}: o horário de abertura deve ser anterior ao de fechamento`;
+      }
+    });
+    return errs;
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
-    setSaving(true);
     setError('');
     setSuccess('');
+    const errs = validateSched();
+    setDayErrors(errs);
+    const messages = DAY_NAMES.map(({ key }) => errs[key]).filter(Boolean);
+    if (messages.length > 0) {
+      setError(messages.join(' · '));
+      return;
+    }
+    setSaving(true);
     try {
       await storeAPI.update({ ...form, schedulingConfig: JSON.stringify(sched) });
       await refreshStore();
+      setWarning('');
       setSuccess('Loja atualizada com sucesso!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Erro ao salvar as alterações.');
     } finally {
       setSaving(false);
     }
@@ -286,12 +369,13 @@ function StoreSettings() {
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
+      {warning && <div className="alert" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.35)' }}>{warning}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
       <PageGuide pageKey="store-settings" title="Como configurar sua loja" steps={[
         'Preencha o <strong>nome, telefone e endereço</strong> da sua empresa nas informações básicas.',
         'Em <strong>Configuração de Agenda</strong>, ative os dias que você atende marcando a caixinha de cada dia.',
-        'Defina o <strong>horário de início e fim</strong> de cada dia ativo — o chatbot só vai oferecer horários dentro desse intervalo.',
+        'Defina o <strong>horário de início e fim</strong> de cada dia ativo. O chatbot só vai oferecer horários dentro desse intervalo.',
         'O <strong>intervalo entre slots</strong> define o espaçamento dos horários (30 min = oferece 9:00, 9:30, 10:00... | 60 min = 9:00, 10:00, 11:00...).',
         'Clique em <strong>Salvar Alterações</strong> no final da página para confirmar tudo.',
       ]} color="#f59e0b" />
@@ -299,14 +383,14 @@ function StoreSettings() {
       <form onSubmit={handleSave}>
         <div className="settings-grid">
           <div className="settings-section">
-            <h3>📝 Informações Básicas</h3>
+            <h3>Informações básicas</h3>
             <div className="logo-upload">
               <div className="logo-preview">
-                {store?.logoUrl ? <img src={UPLOADS_URL + store.logoUrl} alt="Logo" /> : '🏪'}
+                {store?.logoUrl ? <img src={UPLOADS_URL + store.logoUrl} alt="Logo" /> : <span className="logo-fallback">AG</span>}
               </div>
               <div>
                 <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
-                  📷 Alterar Logo
+                  <UIIcon name="image" size={16} /> Alterar logo
                   <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ display: 'none' }} />
                 </label>
               </div>
@@ -326,7 +410,7 @@ function StoreSettings() {
           </div>
 
           <div className="settings-section">
-            <h3>📞 Contato & Endereço</h3>
+            <h3>Contato e endereço</h3>
             <div className="form-group">
               <label>WhatsApp (com DDD)</label>
               <input className="form-input" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="Ex: 11999998888" required />
@@ -340,35 +424,51 @@ function StoreSettings() {
               <textarea className="form-input" value={form.businessHours} onChange={e => setForm({ ...form, businessHours: e.target.value })} placeholder="Ex: Seg-Sex: 9h às 18h&#10;Sáb: 9h às 13h" rows={2} />
             </div>
             <div className="form-group">
-              <label>⚙️ Configuração de Agenda (para agendamento automático)</label>
-              <div style={{ background: '#f8f8ff', border: '1px solid #e0dfff', borderRadius: 10, padding: '12px 14px', marginTop: 4 }}>
+              <label>Configuração de agenda (para agendamento automático)</label>
+              <div style={{ ...panel, padding: '12px 14px', marginTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>Intervalo entre slots:</span>
-                  <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} value={sched.slotInterval} onChange={e => setSched(s => ({ ...s, slotInterval: parseInt(e.target.value) }))}>
-                    {[15,20,30,45,60].map(v => <option key={v} value={v}>{v} min</option>)}
+                  <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} value={sched.slotInterval} onChange={e => setSched(s => ({ ...s, slotInterval: parseInt(e.target.value, 10) }))}>
+                    {SLOT_INTERVALS.map(v => <option key={v} value={v}>{v} min</option>)}
                   </select>
                 </div>
-                {DAY_NAMES.map(({ key, label }) => (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                {DAY_NAMES.map(({ key, label }) => {
+                  const day = sched.hours[key] || DEFAULT_SCHED.hours[key];
+                  const dayError = dayErrors[key];
+                  return (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', background: dayError ? 'rgba(255, 71, 87, 0.08)' : 'transparent', border: `1px solid ${dayError ? 'rgba(255, 71, 87, 0.4)' : 'transparent'}`, borderRadius: 8, padding: dayError ? '6px 8px' : 0 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: 90, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={sched.hours[key]?.active ?? false}
-                        onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], active: e.target.checked } } }))} />
-                      <span style={{ fontSize: 13, fontWeight: sched.hours[key]?.active ? 600 : 400, color: sched.hours[key]?.active ? '#333' : '#aaa' }}>{label}</span>
+                      <input type="checkbox" checked={day.active}
+                        onChange={e => {
+                          clearDayError(key);
+                          setSched(s => {
+                            const fallback = DEFAULT_SCHED.hours[key];
+                            const current = s.hours[key] || {};
+                            return { ...s, hours: { ...s.hours, [key]: {
+                              active: e.target.checked,
+                              open: isValidTime(current.open) ? current.open : fallback.open,
+                              close: isValidTime(current.close) ? current.close : fallback.close,
+                            } } };
+                          });
+                        }} />
+                      <span style={{ fontSize: 13, fontWeight: day.active ? 600 : 400, color: day.active ? '#333' : '#aaa' }}>{label}</span>
                     </label>
-                    {sched.hours[key]?.active && (
+                    {day.active && (
                       <>
-                        <input type="time" style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
-                          value={sched.hours[key]?.open || '09:00'}
-                          onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], open: e.target.value } } }))} />
+                        <input type="time" required style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${dayError ? '#ff4757' : '#ddd'}`, fontSize: 13 }}
+                          value={day.open}
+                          onChange={e => { clearDayError(key); setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], open: e.target.value } } })); }} />
                         <span style={{ fontSize: 12, color: '#888' }}>até</span>
-                        <input type="time" style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
-                          value={sched.hours[key]?.close || '18:00'}
-                          onChange={e => setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], close: e.target.value } } }))} />
+                        <input type="time" required style={{ padding: '3px 6px', borderRadius: 6, border: `1px solid ${dayError ? '#ff4757' : '#ddd'}`, fontSize: 13 }}
+                          value={day.close}
+                          onChange={e => { clearDayError(key); setSched(s => ({ ...s, hours: { ...s.hours, [key]: { ...s.hours[key], close: e.target.value } } })); }} />
                       </>
                     )}
-                    {!sched.hours[key]?.active && <span style={{ fontSize: 12, color: '#aaa' }}>— Fechado</span>}
+                    {!day.active && <span style={{ fontSize: 12, color: '#aaa' }}>Fechado</span>}
+                    {dayError && <span style={{ fontSize: 12, color: '#dc2626', width: '100%' }}>{dayError}</span>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <div className="form-group">
@@ -383,7 +483,7 @@ function StoreSettings() {
 
         <div style={{ marginTop: '24px', textAlign: 'right' }}>
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? 'Salvando...' : '💾 Salvar Alterações'}
+            {saving ? 'Salvando...' : 'Salvar alterações'}
           </button>
         </div>
       </form>
@@ -457,7 +557,7 @@ function CategoriesPage() {
 
       {categories.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon">📁</div>
+          <div className="empty-icon"><UIIcon name="categories" size={28} /></div>
           <h3>Nenhuma categoria</h3>
           <p>Crie categorias para organizar seus serviços</p>
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>Criar Primeira Categoria</button>
@@ -467,15 +567,15 @@ function CategoriesPage() {
           {categories.map(cat => (
             <div key={cat.id} className="category-card">
               <div className="category-card-info">
-                <div className="cat-icon">📁</div>
+                <div className="cat-icon"><UIIcon name="categories" /></div>
                 <div>
                   <h3>{cat.name}</h3>
                   <span>{cat._count?.products || 0} serviços</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn-icon" onClick={() => { setEditingCat(cat); setCatName(cat.name); setShowModal(true); }}>✏️</button>
-                <button className="btn-icon" onClick={() => handleDelete(cat.id)}>🗑️</button>
+                <button className="btn-icon" aria-label="Editar categoria" onClick={() => { setEditingCat(cat); setCatName(cat.name); setShowModal(true); }}><UIIcon name="edit" /></button>
+                <button className="btn-icon" aria-label="Remover categoria" onClick={() => handleDelete(cat.id)}><UIIcon name="delete" /></button>
               </div>
             </div>
           ))}
@@ -510,7 +610,7 @@ function ServicesPage() {
   const [form, setForm] = useState({ name: '', description: '', price: '', categoryId: '', duration: '30', bufferTime: '0' });
   const [error, setError] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [prods, cats] = await Promise.all([productsAPI.list(), categoriesAPI.list()]);
       setProducts(prods);
@@ -520,34 +620,50 @@ function ServicesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const openNew = () => {
     setEditingProd(null);
+    setError('');
     setForm({ name: '', description: '', price: '', categoryId: '', duration: '30', bufferTime: '0' });
     setShowModal(true);
   };
 
   const openEdit = (p) => {
     setEditingProd(p);
+    setError('');
     setForm({ name: p.name, description: p.description || '', price: String(p.price), categoryId: p.categoryId ? String(p.categoryId) : '', duration: String(p.duration ?? 30), bufferTime: String(p.bufferTime ?? 0) });
     setShowModal(true);
   };
 
   const handleSave = async () => {
     if (!form.name || !form.price) return;
+    setError('');
+    const durationRaw = String(form.duration).trim();
+    const bufferRaw = String(form.bufferTime).trim();
+    const duration = /^\d+$/.test(durationRaw) ? parseInt(durationRaw, 10) : NaN;
+    const bufferTime = /^\d+$/.test(bufferRaw) ? parseInt(bufferRaw, 10) : NaN;
+    if (!Number.isInteger(duration) || duration < 1) {
+      setError('Duração inválida: informe um número inteiro de minutos (mínimo 1).');
+      return;
+    }
+    if (!Number.isInteger(bufferTime) || bufferTime < 0) {
+      setError('Intervalo após o atendimento inválido: informe um número inteiro de minutos (0 ou mais).');
+      return;
+    }
+    const payload = { ...form, price: parseFloat(form.price), categoryId: form.categoryId || null, duration, bufferTime };
     try {
       if (editingProd) {
-        await productsAPI.update(editingProd.id, { ...form, price: parseFloat(form.price), categoryId: form.categoryId || null, duration: parseInt(form.duration)||30, bufferTime: parseInt(form.bufferTime)||0 });
+        await productsAPI.update(editingProd.id, payload);
       } else {
-        await productsAPI.create({ ...form, price: parseFloat(form.price), categoryId: form.categoryId || null, duration: parseInt(form.duration)||30, bufferTime: parseInt(form.bufferTime)||0 });
+        await productsAPI.create(payload);
       }
       setShowModal(false);
       loadData();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Erro ao salvar o serviço.');
     }
   };
 
@@ -597,17 +713,17 @@ function ServicesPage() {
 
       <PageGuide pageKey="services" title="Como cadastrar serviços" steps={[
         'Clique em <strong>+ Novo Serviço</strong> para adicionar um serviço (ex: Corte Masculino, Barba, Manicure).',
-        'Preencha o <strong>nome</strong>, <strong>preço</strong> e, muito importante, a <strong>duração em minutos</strong> — o sistema usa isso para calcular os horários disponíveis.',
+        'Preencha o <strong>nome</strong>, o <strong>preço</strong> e a <strong>duração em minutos</strong>. O sistema usa esse tempo para calcular os horários disponíveis.',
         'O campo <strong>Intervalo após</strong> é o tempo de descanso/limpeza depois do atendimento. Ex: 10 min de limpeza após cada corte.',
         'Serviços <strong>inativos</strong> (clique no toggle de status) não aparecem para agendamento no chatbot.',
-        'Você pode adicionar uma <strong>foto</strong> ao serviço — ela aparece na vitrine pública da sua loja.',
+        'Você pode adicionar uma <strong>foto</strong> ao serviço. Ela aparece na vitrine pública da sua loja.',
       ]} />
 
       {error && <div className="alert alert-error">{error}</div>}
 
       {products.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon">🛠️</div>
+          <div className="empty-icon"><UIIcon name="services" size={28} /></div>
           <h3>Nenhum serviço</h3>
           <p>Adicione seus serviços para que os clientes possam vê-los</p>
           <button className="btn btn-primary" onClick={openNew}>Adicionar Primeiro Serviço</button>
@@ -617,9 +733,9 @@ function ServicesPage() {
           {products.map(p => (
             <div key={p.id} className="item-card">
               <div className="item-card-image">
-                {p.imageUrl ? <img src={UPLOADS_URL + p.imageUrl} alt={p.name} /> : <span className="placeholder">📷</span>}
+                {p.imageUrl ? <img src={UPLOADS_URL + p.imageUrl} alt={p.name} /> : <span className="placeholder"><UIIcon name="image" size={28} /></span>}
                 <label style={{ position: 'absolute', bottom: 8, right: 8, cursor: 'pointer' }}>
-                  <span className="btn btn-secondary btn-sm" style={{ fontSize: '0.75rem' }}>📷 Foto</span>
+                  <span className="btn btn-secondary btn-sm" style={{ fontSize: '0.75rem' }}><UIIcon name="image" size={14} /> Foto</span>
                   <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleImageUpload(p.id, e)} />
                 </label>
               </div>
@@ -631,11 +747,11 @@ function ServicesPage() {
                   </span>
                 </div>
                 {p.description && <p>{p.description}</p>}
-                {p.category && <p style={{ fontSize: '0.8rem' }}>📁 {p.category.name}</p>}
+                {p.category && <p style={{ fontSize: '0.8rem' }}>{p.category.name}</p>}
                 <div className="item-card-price">R$ {p.price.toFixed(2).replace('.', ',')}</div>
                 <div className="item-card-actions">
-                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}>✏️ Editar</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>🗑️</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}><UIIcon name="edit" size={15} /> Editar</button>
+                  <button className="btn btn-danger btn-sm" aria-label="Remover serviço" onClick={() => handleDelete(p.id)}><UIIcon name="delete" size={15} /></button>
                 </div>
               </div>
             </div>
@@ -661,12 +777,14 @@ function ServicesPage() {
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <div className="form-group" style={{ flex: 1 }}>
-                <label>⏱ Duração (min)</label>
-                <input className="form-input" type="number" min="5" step="5" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="30" />
+                <label>Duração (min)</label>
+                <input className="form-input" type="number" min="1" step="5" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="30" />
+                <small style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tempo do atendimento em si.</small>
               </div>
               <div className="form-group" style={{ flex: 1 }}>
-                <label>🔄 Intervalo após (min)</label>
+                <label>Intervalo após (min)</label>
                 <input className="form-input" type="number" min="0" step="5" value={form.bufferTime} onChange={e => setForm({ ...form, bufferTime: e.target.value })} placeholder="0" />
+                <small style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tempo de descanso/limpeza reservado <strong>depois</strong> de cada atendimento. Use 0 se não precisar.</small>
               </div>
             </div>
             <div className="form-group">
@@ -676,6 +794,7 @@ function ServicesPage() {
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            {error && <div className="alert alert-error">{error}</div>}
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={handleSave}>Salvar</button>
@@ -846,7 +965,7 @@ function ChatbotPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>🤖 Chatbot WhatsApp</h1>
+          <h1>Chatbot WhatsApp</h1>
           <p>Configure o atendimento automático da sua loja</p>
         </div>
       </div>
@@ -857,7 +976,7 @@ function ChatbotPage() {
       <div className="settings-grid">
         {/* Coluna esquerda: Configurações */}
         <div className="settings-section">
-          <h3>📱 Conexão com WhatsApp</h3>
+          <h3>Conexão com WhatsApp</h3>
 
           {/* Status card */}
           <div style={{ padding: '20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${isConnected ? 'var(--success)' : 'var(--border)'}`, marginBottom: '24px' }}>
@@ -874,12 +993,12 @@ function ChatbotPage() {
                   O chatbot está ativo e respondendo automaticamente seus clientes pelo WhatsApp.
                 </p>
                 <button className="btn btn-secondary" onClick={handleDisconnect} disabled={disconnecting} style={{ width: '100%' }}>
-                  {disconnecting ? 'Desconectando...' : '🔌 Desconectar WhatsApp'}
+                  {disconnecting ? 'Desconectando...' : 'Desconectar WhatsApp'}
                 </button>
               </div>
             ) : waStatus.status === 'qr' && waStatus.qr ? (
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 600, marginBottom: '12px' }}>📷 Escaneie o QR Code</div>
+                <div style={{ fontWeight: 600, marginBottom: '12px' }}>Escaneie o QR Code</div>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
                   Abra o WhatsApp no seu celular → Menu → Dispositivos conectados → Conectar dispositivo
                 </p>
@@ -894,10 +1013,10 @@ function ChatbotPage() {
               </div>
             ) : waStatus.status === 'error' ? (
               <div>
-                <div style={{ color: 'var(--error)', fontWeight: 600, marginBottom: '8px' }}>❌ Erro de conexão</div>
+                <div style={{ color: 'var(--error)', fontWeight: 600, marginBottom: '8px' }}>Erro de conexão</div>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>{waStatus.error || 'Não foi possível conectar. Tente novamente.'}</p>
                 <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
-                  🔄 Tentar Novamente
+                  Tentar novamente
                 </button>
               </div>
             ) : (
@@ -907,7 +1026,7 @@ function ChatbotPage() {
                   <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>WhatsApp Desconectado</div>
                 </div>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  Conecte seu WhatsApp para ativar o chatbot. É rápido — basta escanear um QR Code com o celular.
+                  Conecte seu WhatsApp para ativar o chatbot. É rápido: basta escanear um QR Code com o celular.
                 </p>
                 <ol style={{ paddingLeft: '18px', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <li>Clique em <strong>"Conectar WhatsApp"</strong></li>
@@ -916,7 +1035,7 @@ function ChatbotPage() {
                   <li>Escaneie o QR Code que aparecerá aqui</li>
                 </ol>
                 <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
-                  {connecting ? 'Iniciando...' : '📱 Conectar WhatsApp'}
+                  {connecting ? 'Iniciando...' : 'Conectar WhatsApp'}
                 </button>
               </div>
             )}
@@ -931,18 +1050,18 @@ function ChatbotPage() {
                     <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: config?.botEnabled ? '23px' : '3px', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600 }}>{config?.botEnabled ? '🟢 Chatbot Ativado' : '🔴 Chatbot Desativado'}</div>
+                    <div style={{ fontWeight: 600 }}>{config?.botEnabled ? 'Chatbot ativado' : 'Chatbot desativado'}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
                   </div>
                 </label>
               </div>
 
-              <h3 style={{ marginTop: '8px' }}>💬 Mensagens</h3>
+              <h3 style={{ marginTop: '8px' }}>Mensagens</h3>
               <div className="form-group">
                 <label>Mensagem de Boas-vindas</label>
                 <textarea className="form-input" value={config?.botGreeting || ''}
                   onChange={e => setConfig({ ...config, botGreeting: e.target.value })}
-                  placeholder={`Olá! 👋 Bem-vindo(a) à ${store?.name}!\nComo posso te ajudar?`}
+                  placeholder={`Olá. Bem-vindo(a) à ${store?.name}.\nComo posso te ajudar?`}
                   rows={3} />
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Essa é a primeira mensagem que o cliente recebe ao enviar qualquer coisa</span>
               </div>
@@ -957,7 +1076,7 @@ function ChatbotPage() {
 
               <div style={{ marginTop: '20px', textAlign: 'right' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Salvando...' : '💾 Salvar Configurações'}
+                  {saving ? 'Salvando...' : 'Salvar configurações'}
                 </button>
               </div>
             </>
@@ -967,7 +1086,7 @@ function ChatbotPage() {
         {/* Coluna direita: Preview e Produtos */}
         <div>
           <div className="settings-section" style={{ marginBottom: '24px' }}>
-            <h3>📱 Preview do Chatbot</h3>
+            <h3>Prévia do chatbot</h3>
             <div style={{ background: '#0B141A', borderRadius: 'var(--radius-lg)', padding: '20px', fontFamily: 'system-ui' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
@@ -975,20 +1094,20 @@ function ChatbotPage() {
                 </div>
                 <div style={{ alignSelf: 'flex-start', background: '#1F2C34', color: 'white', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', fontSize: '0.85rem' }}>
                   <div style={{ marginBottom: '8px' }}>
-                    {config?.botGreeting || `Olá! 👋 Bem-vindo(a) à ${store?.name}!`}
+                    {config?.botGreeting || `Olá. Bem-vindo(a) à ${store?.name}.`}
                   </div>
                   <div style={{ color: '#8696A0', fontSize: '0.8rem' }}>Como posso te ajudar?</div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {['📋 Ver Catálogo', '🛒 Fazer Pedido', '📄 Meus Pedidos'].map(btn => (
+                  {['Ver catálogo', 'Fazer pedido', 'Meus pedidos'].map(btn => (
                     <span key={btn} style={{ padding: '6px 14px', background: '#1F2C34', border: '1px solid #2A3942', borderRadius: '20px', fontSize: '0.8rem', color: '#53BDEB' }}>{btn}</span>
                   ))}
                 </div>
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
-                  📋 Ver Catálogo
+                  Ver catálogo
                 </div>
                 <div style={{ alignSelf: 'flex-start', background: '#1F2C34', color: 'white', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', fontSize: '0.85rem' }}>
-                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>🛠️ Serviços disponíveis:</div>
+                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>Serviços disponíveis:</div>
                   {activeProducts.slice(0, 3).map(p => (
                     <div key={p.id} style={{ padding: '4px 0', borderBottom: '1px solid #2A3942', display: 'flex', justifyContent: 'space-between' }}>
                       <span>{p.name}</span>
@@ -1003,7 +1122,7 @@ function ChatbotPage() {
           </div>
 
           <div className="settings-section">
-            <h3>🛠️ Serviços no Chatbot ({activeProducts.length})</h3>
+            <h3>Serviços no chatbot ({activeProducts.length})</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
               Todos os serviços <strong>ativos</strong> aparecem automaticamente no chatbot. Para remover um serviço do bot, desative-o na página de <a href="/dashboard/servicos" style={{ color: 'var(--primary)' }}>Serviços</a>.
             </p>
@@ -1035,7 +1154,7 @@ function OrdersPage() {
   const [filter, setFilter] = useState('all');
   const [error, setError] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [ordersData, statsData] = await Promise.all([
         ordersAPI.list(filter),
@@ -1048,9 +1167,9 @@ function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
 
-  useEffect(() => { loadData(); }, [filter]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const changeStatus = async (id, status) => {
     try {
@@ -1072,10 +1191,10 @@ function OrdersPage() {
   };
 
   const statusConfig = {
-    pending: { label: 'Aguardando', emoji: '⏳', color: '#f59e0b' },
-    confirmed: { label: 'Confirmado', emoji: '✅', color: '#10b981' },
-    completed: { label: 'Concluído', emoji: '🎉', color: '#6366f1' },
-    cancelled: { label: 'Cancelado', emoji: '❌', color: '#ef4444' },
+    pending: { label: 'Aguardando' },
+    confirmed: { label: 'Confirmado' },
+    completed: { label: 'Concluído' },
+    cancelled: { label: 'Cancelado' },
   };
 
   const formatDate = (dateStr) => {
@@ -1094,10 +1213,10 @@ function OrdersPage() {
   if (loading) return <div className="loading-spinner" />;
 
   return (
-    <div>
+    <div className="orders-page">
       <div className="page-header">
         <div>
-          <h1>📊 Pedidos</h1>
+          <h1>Pedidos</h1>
           <p>Gerencie os pedidos recebidos pelo chatbot</p>
         </div>
       </div>
@@ -1106,35 +1225,35 @@ function OrdersPage() {
 
       {/* Stats */}
       <div className="stats-grid" style={{ marginBottom: '24px' }}>
-        <div className="stat-card" onClick={() => setFilter('pending')} style={{ cursor: 'pointer', borderColor: filter === 'pending' ? '#f59e0b' : undefined }}>
-          <div className="stat-icon">⏳</div>
+        <button type="button" className={`stat-card orders-stat-card${filter === 'pending' ? ' is-active' : ''}`} onClick={() => setFilter('pending')}>
+          <div className="stat-icon"><UIIcon name="clock" /></div>
           <div className="stat-value">{stats.pending}</div>
           <div className="stat-label">Aguardando</div>
-        </div>
-        <div className="stat-card" onClick={() => setFilter('confirmed')} style={{ cursor: 'pointer', borderColor: filter === 'confirmed' ? '#10b981' : undefined }}>
-          <div className="stat-icon">✅</div>
+        </button>
+        <button type="button" className={`stat-card orders-stat-card${filter === 'confirmed' ? ' is-active' : ''}`} onClick={() => setFilter('confirmed')}>
+          <div className="stat-icon"><UIIcon name="check" /></div>
           <div className="stat-value">{stats.confirmed}</div>
           <div className="stat-label">Confirmados</div>
-        </div>
-        <div className="stat-card" onClick={() => setFilter('completed')} style={{ cursor: 'pointer', borderColor: filter === 'completed' ? '#6366f1' : undefined }}>
-          <div className="stat-icon">🎉</div>
+        </button>
+        <button type="button" className={`stat-card orders-stat-card${filter === 'completed' ? ' is-active' : ''}`} onClick={() => setFilter('completed')}>
+          <div className="stat-icon"><UIIcon name="services" /></div>
           <div className="stat-value">{stats.completed}</div>
           <div className="stat-label">Concluídos</div>
-        </div>
-        <div className="stat-card" onClick={() => setFilter('all')} style={{ cursor: 'pointer', borderColor: filter === 'all' ? 'var(--primary)' : undefined }}>
-          <div className="stat-icon">📦</div>
+        </button>
+        <button type="button" className={`stat-card orders-stat-card${filter === 'all' ? ' is-active' : ''}`} onClick={() => setFilter('all')}>
+          <div className="stat-icon"><UIIcon name="orders" /></div>
           <div className="stat-value">{stats.total}</div>
           <div className="stat-label">Total</div>
-        </div>
+        </button>
       </div>
 
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div className="orders-filters">
         {['all', 'pending', 'confirmed', 'completed', 'cancelled'].map(s => (
           <button key={s}
             onClick={() => setFilter(s)}
-            style={{ padding: '8px 16px', borderRadius: 'var(--radius-full)', border: `1px solid ${filter === s ? 'var(--primary)' : 'var(--border)'}`, background: filter === s ? 'var(--primary)' : 'var(--bg-card)', color: filter === s ? 'white' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500, transition: 'var(--transition)' }}>
-            {s === 'all' ? '📦 Todos' : `${statusConfig[s]?.emoji} ${statusConfig[s]?.label}`}
+            className={`orders-filter${filter === s ? ' is-active' : ''}`}>
+            {s === 'all' ? 'Todos' : statusConfig[s]?.label}
           </button>
         ))}
       </div>
@@ -1142,26 +1261,26 @@ function OrdersPage() {
       {/* Orders list */}
       {orders.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon">📊</div>
+          <div className="empty-icon"><UIIcon name="orders" size={28} /></div>
           <h3>Nenhum pedido {filter !== 'all' ? statusConfig[filter]?.label.toLowerCase() : ''}</h3>
           <p>Os pedidos feitos pelo chatbot aparecerão aqui automaticamente</p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="orders-list">
           {orders.map(order => {
             const sc = statusConfig[order.status] || statusConfig.pending;
             return (
-              <div key={order.id} style={{ background: 'var(--bg-card)', border: `1px solid var(--border)`, borderRadius: 'var(--radius-lg)', padding: '20px', borderLeft: `4px solid ${sc.color}` }}>
+              <div key={order.id} className="order-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                   <div>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Pedido #{order.id}</span>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{order.product?.name || 'Produto removido'}</h3>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ padding: '4px 12px', borderRadius: 'var(--radius-full)', background: `${sc.color}22`, color: sc.color, fontSize: '0.8rem', fontWeight: 600 }}>
-                      {sc.emoji} {sc.label}
+                    <span className={`order-status order-status-${order.status}`}>
+                      {sc.label}
                     </span>
-                    <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--success)' }}>
+                    <span className="order-price">
                       R$ {(order.totalPrice || 0).toFixed(2).replace('.', ',')}
                     </span>
                   </div>
@@ -1169,33 +1288,33 @@ function OrdersPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>👤</span>
+                    <span><UIIcon name="clients" size={16} /></span>
                     <div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cliente</div>
                       <div style={{ fontWeight: 600 }}>{order.customerName}</div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>📱</span>
+                    <span><UIIcon name="phone" size={16} /></span>
                     <div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Telefone</div>
-                      <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" style={{ color: '#25D366', fontWeight: 600 }}>
+                      <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" className="order-contact-link">
                         {formatPhone(order.customerPhone)}
                       </a>
                     </div>
                   </div>
                   {order.scheduledTime && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>🕐</span>
+                      <span><UIIcon name="clock" size={16} /></span>
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Horário</div>
-                        <div style={{ fontWeight: 600, color: '#f59e0b' }}>{order.scheduledTime}</div>
+                        <div className="order-schedule">{order.scheduledTime}</div>
                       </div>
                     </div>
                   )}
                   {order.customerAddress && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>📍</span>
+                      <span><UIIcon name="pin" size={16} /></span>
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Endereço</div>
                         <div style={{ fontWeight: 600 }}>{order.customerAddress}</div>
@@ -1206,26 +1325,26 @@ function OrdersPage() {
 
                 {order.notes && (
                   <div style={{ padding: '10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', marginBottom: '14px', fontSize: '0.85rem' }}>
-                    💬 <em>{order.notes}</em>
+                    <UIIcon name="chat" size={16} /> <em>{order.notes}</em>
                   </div>
                 )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>📅 {formatDate(order.createdAt)}</span>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatDate(order.createdAt)}</span>
+                  <div className="order-actions">
                     {order.status === 'pending' && (
                       <>
-                        <button className="btn btn-sm" style={{ background: '#10b981', color: 'white', border: 'none' }} onClick={() => changeStatus(order.id, 'confirmed')}>✅ Confirmar</button>
-                        <button className="btn btn-sm" style={{ background: '#ef4444', color: 'white', border: 'none' }} onClick={() => changeStatus(order.id, 'cancelled')}>❌ Recusar</button>
+                        <button className="btn btn-sm order-action order-action-primary" onClick={() => changeStatus(order.id, 'confirmed')}>Confirmar</button>
+                        <button className="btn btn-sm order-action order-action-decline" onClick={() => changeStatus(order.id, 'cancelled')}>Recusar</button>
                       </>
                     )}
                     {order.status === 'confirmed' && (
-                      <button className="btn btn-sm" style={{ background: '#6366f1', color: 'white', border: 'none' }} onClick={() => changeStatus(order.id, 'completed')}>🎉 Concluir</button>
+                      <button className="btn btn-sm order-action order-action-primary" onClick={() => changeStatus(order.id, 'completed')}>Concluir</button>
                     )}
                     {(order.status === 'completed' || order.status === 'cancelled') && (
-                      <button className="btn btn-sm btn-secondary" onClick={() => deleteOrder(order.id)}>🗑️ Remover</button>
+                      <button className="btn btn-sm order-action order-action-remove" onClick={() => deleteOrder(order.id)}><UIIcon name="delete" size={15} /> Remover</button>
                     )}
-                    <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" className="btn btn-sm" style={{ background: '#25D366', color: 'white', border: 'none', textDecoration: 'none' }}>💬 WhatsApp</a>
+                    <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" className="btn btn-sm order-action order-action-contact"><UIIcon name="chat" size={15} /> WhatsApp</a>
                   </div>
                 </div>
               </div>
@@ -1242,194 +1361,20 @@ function ChatbotPaywall() {
     <div>
       <div className="page-header">
         <div>
-          <h1>🤖 Chatbot WhatsApp</h1>
+          <h1>Chatbot WhatsApp</h1>
           <p>Conecte seu WhatsApp e comece a atender automaticamente</p>
         </div>
       </div>
       <div className="card" style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+        <div className="paywall-icon"><UIIcon name="lock" size={32} /></div>
         <h2 style={{ marginBottom: '16px' }}>Recurso Premium</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '32px', maxWidth: '500px', margin: '0 auto 32px', lineHeight: '1.6' }}>
           O Chatbot Automático é uma funcionalidade exclusiva para assinantes Premium. 
           Desbloqueie agora para conectar o sistema ao seu número e assistir o robô receber pedidos sozinho 24/7.
         </p>
         <Link to="/dashboard/billing" className="btn btn-primary" style={{ padding: '16px 32px', fontSize: '1.1rem', fontWeight: 600 }}>
-          ✨ Desbloquear Chatbot Premium
+          Desbloquear chatbot premium
         </Link>
-      </div>
-    </div>
-  );
-}
-
-function _AgendaPageLegacy_REMOVED() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState(null);
-
-  useEffect(() => {
-    ordersAPI.list('all')
-      .then(data => setOrders(data.orders || []))
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const scheduled = orders.filter(o => o.scheduledTime);
-
-  // Calendar helpers
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-  const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const weekDays = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-
-  // Map orders by creation day (day of month, same month/year)
-  const ordersByDay = {};
-  scheduled.forEach(o => {
-    const d = new Date(o.createdAt);
-    if (d.getFullYear() === year && d.getMonth() === month) {
-      const day = d.getDate();
-      if (!ordersByDay[day]) ordersByDay[day] = [];
-      ordersByDay[day].push(o);
-    }
-  });
-
-  const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
-  const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
-
-  const statusConfig = {
-    pending:   { label: 'Aguardando', color: '#f59e0b' },
-    confirmed: { label: 'Confirmado', color: '#10b981' },
-    completed: { label: 'Concluído',  color: '#6366f1' },
-    cancelled: { label: 'Cancelado',  color: '#ef4444' },
-  };
-
-  const selectedOrders = selectedDay ? (ordersByDay[selectedDay] || []) : scheduled;
-
-  if (loading) return <div className="loading-spinner" />;
-
-  return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>📅 Agenda</h1>
-          <p>Visualize os agendamentos em formato de calendário</p>
-        </div>
-      </div>
-
-      {error && <div className="alert alert-error">{error}</div>}
-
-      {/* Calendário */}
-      <div className="settings-section" style={{ marginBottom: '24px' }}>
-        {/* Navegação do mês */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-          <button className="btn btn-secondary btn-sm" onClick={prevMonth}>‹ Anterior</button>
-          <h3 style={{ margin: 0, fontWeight: 700 }}>{monthNames[month]} {year}</h3>
-          <button className="btn btn-secondary btn-sm" onClick={nextMonth}>Próximo ›</button>
-        </div>
-
-        {/* Dias da semana */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '4px' }}>
-          {weekDays.map(d => (
-            <div key={d} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', padding: '4px 0' }}>{d}</div>
-          ))}
-        </div>
-
-        {/* Células do calendário */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
-          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const day = i + 1;
-            const isToday = today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
-            const hasOrders = !!ordersByDay[day];
-            const isSelected = selectedDay === day;
-            return (
-              <div
-                key={day}
-                onClick={() => setSelectedDay(isSelected ? null : day)}
-                style={{
-                  padding: '8px 4px',
-                  borderRadius: 'var(--radius-sm)',
-                  textAlign: 'center',
-                  cursor: hasOrders ? 'pointer' : 'default',
-                  background: isSelected ? 'var(--primary)' : isToday ? 'rgba(108,99,255,0.12)' : 'var(--bg-elevated)',
-                  border: `1px solid ${isSelected ? 'var(--primary)' : isToday ? 'var(--primary)' : 'var(--border)'}`,
-                  color: isSelected ? 'white' : 'var(--text-primary)',
-                  position: 'relative',
-                  transition: 'var(--transition)',
-                  minHeight: '48px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '4px',
-                }}
-              >
-                <span style={{ fontSize: '0.9rem', fontWeight: isToday ? 700 : 400 }}>{day}</span>
-                {hasOrders && (
-                  <div style={{ display: 'flex', gap: '2px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {ordersByDay[day].slice(0, 3).map(o => (
-                      <div key={o.id} style={{ width: '7px', height: '7px', borderRadius: '50%', background: isSelected ? 'rgba(255,255,255,0.8)' : (statusConfig[o.status]?.color || '#6366f1') }} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {selectedDay && (
-          <div style={{ marginTop: '12px', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Mostrando agendamentos do dia <strong>{selectedDay} de {monthNames[month]}</strong> —{' '}
-            <span style={{ color: 'var(--primary)', cursor: 'pointer' }} onClick={() => setSelectedDay(null)}>ver todos</span>
-          </div>
-        )}
-      </div>
-
-      {/* Lista de agendamentos */}
-      <div className="settings-section">
-        <h3 style={{ marginBottom: '16px' }}>
-          {selectedDay ? `Agendamentos — ${selectedDay} de ${monthNames[month]}` : 'Todos os Agendamentos'}
-          <span style={{ marginLeft: '10px', fontSize: '0.85rem', fontWeight: 400, color: 'var(--text-muted)' }}>({selectedOrders.length})</span>
-        </h3>
-
-        {selectedOrders.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📅</div>
-            <h3>{selectedDay ? 'Nenhum agendamento neste dia' : 'Nenhum agendamento ainda'}</h3>
-            <p>Os agendamentos feitos pelo chatbot aparecerão aqui</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {selectedOrders.map(order => {
-              const sc = statusConfig[order.status] || statusConfig.pending;
-              const d = new Date(order.createdAt);
-              return (
-                <div key={order.id} style={{ background: 'var(--bg-elevated)', border: `1px solid var(--border)`, borderLeft: `4px solid ${sc.color}`, borderRadius: 'var(--radius-md)', padding: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div style={{ flex: 1, minWidth: '200px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <span style={{ fontWeight: 700 }}>{order.customerName}</span>
-                      <span style={{ padding: '2px 10px', borderRadius: 'var(--radius-full)', background: `${sc.color}22`, color: sc.color, fontSize: '0.75rem', fontWeight: 600 }}>{sc.label}</span>
-                    </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                      <span>🛠️ {order.product?.name || 'Serviço removido'}</span>
-                      <span>🕐 <strong style={{ color: 'var(--text-primary)' }}>{order.scheduledTime}</strong></span>
-                      <span>📱 <a href={`https://wa.me/${order.customerPhone}`} target="_blank" rel="noreferrer" style={{ color: '#25D366' }}>{order.customerPhone}</a></span>
-                      {order.notes && <span>💬 {order.notes}</span>}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                    <span style={{ fontWeight: 700, color: 'var(--success)' }}>R$ {(order.totalPrice || 0).toFixed(2).replace('.', ',')}</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{d.toLocaleDateString('pt-BR')}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1443,9 +1388,9 @@ export default function Dashboard() {
     (store?.trialEndsAt && new Date(store.trialEndsAt) > new Date());
 
   return (
-    <div className="dashboard dashboard-light">
+    <div className="dashboard agt-app">
       <div className="dashboard-glow" aria-hidden="true" />
-      <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>☰</button>
+      <button className="menu-toggle" aria-label="Abrir navegação" onClick={() => setSidebarOpen(true)}><UIIcon name="menu" /></button>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 99}} />}
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="main-content">

@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const { processImage } = require('../utils/processImage');
+const { validateSchedulingConfig } = require('../utils/availability');
 
 const router = express.Router();
 
@@ -29,7 +30,7 @@ router.get('/', auth, async (req, res) => {
 // Update store
 router.put('/', auth, async (req, res) => {
   try {
-    const { name, slug, description, phone, address, themeColor, businessHours } = req.body;
+    const { name, slug, description, phone, address, themeColor, businessHours, schedulingConfig } = req.body;
 
     // Check slug uniqueness
     if (slug) {
@@ -37,6 +38,15 @@ router.put('/', auth, async (req, res) => {
       if (existingStore && existingStore.userId !== req.user.id) {
         return res.status(400).json({ error: 'Este link já está em uso' });
       }
+    }
+
+    // Configuração de agenda: aceita string JSON ou objeto; sempre gravada
+    // normalizada (7 dias completos) para nunca existir config parcial no banco
+    let schedulingConfigJson;
+    if (schedulingConfig !== undefined && schedulingConfig !== null) {
+      const result = validateSchedulingConfig(schedulingConfig);
+      if (!result.ok) return res.status(400).json({ error: result.error });
+      schedulingConfigJson = result.json;
     }
 
     const store = await prisma.store.update({
@@ -49,6 +59,7 @@ router.put('/', auth, async (req, res) => {
         ...(address !== undefined && { address }),
         ...(themeColor && { themeColor }),
         ...(businessHours !== undefined && { businessHours }),
+        ...(schedulingConfigJson !== undefined && { schedulingConfig: schedulingConfigJson }),
       },
     });
 

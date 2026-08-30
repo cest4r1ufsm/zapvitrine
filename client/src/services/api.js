@@ -1,5 +1,5 @@
 const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-export const API_URL = isDev ? 'http://localhost:3001/api' : '/api';
+export const API_URL = import.meta.env.VITE_API_URL || (isDev ? 'http://localhost:3001/api' : '/api');
 
 function getToken() {
   return localStorage.getItem('pedidoprontobot_token');
@@ -108,7 +108,7 @@ export const whatsappAPI = {
   disconnect: () => request('/whatsapp/disconnect', { method: 'POST' }),
 };
 
-export const UPLOADS_URL = isDev ? 'http://localhost:3001' : '';
+export const UPLOADS_URL = import.meta.env.VITE_UPLOADS_URL || (isDev ? API_URL.replace(/\/api\/?$/, '') : '');
 
 const api = {
   get: (endpoint) => request(endpoint),

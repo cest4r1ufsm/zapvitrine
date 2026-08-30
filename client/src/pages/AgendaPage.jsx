@@ -2,11 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { ordersAPI } from '../services/api';
 import PageGuide from '../components/PageGuide';
+import UIIcon from '../components/UIIcon';
+import { btnPrimary } from '../styles/buttons';
+import { tint } from '../styles/surfaces';
 
 const AGENDA_GUIDE_STEPS = [
   'A <strong>grade semanal</strong> mostra todos os agendamentos posicionados pelo horário. Use as setas para navegar entre semanas.',
   'Clique em qualquer agendamento para ver os detalhes e alterar o status: <strong>Confirmar</strong>, <strong>Concluído</strong> ou <strong>Cancelar</strong>.',
-  'Clique em <strong>+ Agendar</strong> para criar um agendamento manual — útil para clientes que ligam ou chegam pessoalmente.',
+  'Clique em <strong>+ Agendar</strong> para criar um agendamento manual. Esse recurso ajuda quando o cliente liga ou chega pessoalmente.',
   'No modal de novo agendamento, após escolher o serviço e a data, os <strong>horários disponíveis</strong> aparecem automaticamente.',
   'Agendamentos antigos (sem horário estruturado) aparecem na lista abaixo da grade.',
 ];
@@ -18,21 +21,28 @@ const STATUS_LABEL  = { pending:'Aguardando', confirmed:'Confirmado', completed:
 const WEEKDAY_SHORT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MONTH_NAMES   = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
+// Convenção do projeto: "fake UTC = BRT". Trabalhamos com um instante já
+// deslocado em -3h e lemos SEMPRE os componentes em UTC — misturar getDay()/
+// getDate() (locais) com toISOString() (UTC) aplicava o offset duas vezes e
+// desalinhava a grade em um dia entre 00:00 e 03:00 BRT.
+function nowBRT() {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000);
+}
+
 function toLocalDateStr(date) {
-  // BRT = UTC-3; scheduledAt stored as fake-UTC
   return date.toISOString().slice(0,10);
 }
 
 function weekStart(date) {
   const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
-  d.setDate(d.getDate() - day);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // 0=Dom
+  d.setUTCHours(12, 0, 0, 0); // meio-dia evita qualquer borda de arredondamento
   return d;
 }
 
 function addDays(date, n) {
   const d = new Date(date);
-  d.setDate(d.getDate() + n);
+  d.setUTCDate(d.getUTCDate() + n);
   return d;
 }
 
@@ -59,7 +69,6 @@ const HOURS      = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START
 // ─── New Appointment Modal ───────────────────────────────────────────────────
 
 function NewAppointmentModal({ onClose, onCreated, initialDate }) {
-  const [step, setStep]               = useState('form'); // form | slots
   const [professionals, setProfessionals] = useState([]);
   const [services, setServices]       = useState([]);
   const [slots, setSlots]             = useState([]);
@@ -68,8 +77,7 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
   const [error, setError]             = useState('');
 
   const todayStr = (() => {
-    const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
-    return d.toISOString().slice(0, 10);
+    return nowBRT().toISOString().slice(0, 10);
   })();
 
   const [form, setForm] = useState({
@@ -80,6 +88,7 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
     date: initialDate || todayStr,
     time: '',
     notes: '',
+    duration: '', // duração deste atendimento; vazio = usa o padrão do serviço
   });
 
   useEffect(() => {
@@ -91,14 +100,17 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
 
   useEffect(() => {
     if (!form.productId || !form.date) { setSlots([]); return; }
+    // Duração inválida: não consulta (o servidor recusaria com 400)
+    if (form.duration !== '' && !/^\d+$/.test(form.duration)) { setSlots([]); return; }
     setLoadingSlots(true);
     const params = new URLSearchParams({ date: form.date, serviceId: form.productId });
     if (form.professionalId) params.set('professionalId', form.professionalId);
+    if (form.duration !== '') params.set('duration', form.duration);
     api.get(`/availability/slots?${params}`)
       .then(r => setSlots(r.slots || []))
       .catch(() => setSlots([]))
       .finally(() => setLoadingSlots(false));
-  }, [form.productId, form.date, form.professionalId]);
+  }, [form.productId, form.date, form.professionalId, form.duration]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -113,6 +125,7 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
         date:           form.date,
         time:           form.time,
         notes:          form.notes || null,
+        duration:       form.duration === '' ? null : parseInt(form.duration),
       });
       onCreated(order);
       onClose();
@@ -126,12 +139,22 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v, ...(k !== 'time' ? { time: '' } : {}) }));
   const selectedService = services.find(s => s.id === parseInt(form.productId));
 
+  // Ao trocar o serviço, a duração volta para o padrão dele (que o usuário pode ajustar)
+  const setService = (v) => {
+    const svc = services.find(s => s.id === parseInt(v));
+    setForm(f => ({ ...f, productId: v, time: '', duration: svc ? String(svc.duration) : '' }));
+  };
+
+  const duracaoNum = /^\d+$/.test(form.duration) ? parseInt(form.duration) : null;
+  const duracaoInvalida = form.duration !== '' && (duracaoNum === null || duracaoNum < 1 || duracaoNum > 1440);
+  const duracaoAlterada = !!selectedService && duracaoNum !== null && duracaoNum !== selectedService.duration;
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.box} onClick={e => e.stopPropagation()}>
         <div style={modal.header}>
-          <h2 style={{ margin: 0 }}>➕ Novo Agendamento</h2>
-          <button style={modal.closeBtn} onClick={onClose}>✕</button>
+          <h2 style={{ margin: 0 }}>Novo agendamento</h2>
+          <button style={modal.closeBtn} aria-label="Fechar" onClick={onClose}><UIIcon name="close" /></button>
         </div>
         <form onSubmit={handleSubmit} style={modal.body}>
           {error && <div style={modal.error}>{error}</div>}
@@ -139,10 +162,10 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
           <div style={modal.row}>
             <div style={modal.field}>
               <label style={modal.label}>Serviço *</label>
-              <select style={modal.input} value={form.productId} onChange={e => set('productId', e.target.value)} required>
+              <select style={modal.input} value={form.productId} onChange={e => setService(e.target.value)} required>
                 <option value="">Selecione...</option>
                 {services.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} ({s.duration}min — R${s.price.toFixed(2).replace('.',',')})</option>
+                  <option key={s.id} value={s.id}>{s.name} ({s.duration} min, R$ {s.price.toFixed(2).replace('.',',')})</option>
                 ))}
               </select>
             </div>
@@ -168,6 +191,32 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
             </div>
           </div>
 
+          {selectedService && (
+            <div style={modal.row}>
+              <div style={modal.field}>
+                <label style={modal.label}>Duração deste atendimento (min) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  step="5"
+                  style={{ ...modal.input, ...(duracaoInvalida ? { borderColor: '#dc2626' } : {}) }}
+                  value={form.duration}
+                  onChange={e => setForm(f => ({ ...f, duration: e.target.value, time: '' }))}
+                  required
+                />
+                <div style={modal.hint}>
+                  {duracaoInvalida
+                    ? <span style={{ color: '#dc2626' }}>Informe um número entre 1 e 1440 minutos.</span>
+                    : duracaoAlterada
+                      ? <>Duração ajustada. O padrão de <strong>{selectedService.name}</strong> é {selectedService.duration} min. Os horários abaixo já consideram o novo tempo.</>
+                      : <>Padrão do serviço. Altere se este atendimento precisar de mais tempo.</>}
+                </div>
+              </div>
+              <div style={modal.field} />
+            </div>
+          )}
+
           <div style={modal.row}>
             <div style={modal.field}>
               <label style={modal.label}>Data *</label>
@@ -183,18 +232,25 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
                   {slots.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               ) : (
-                <input style={modal.input} value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
-                  placeholder={loadingSlots ? 'Buscando...' : (form.productId ? 'Sem slots — digite ex: 14:00' : 'Selecione o serviço primeiro')}
-                  pattern="^([01]?[0-9]|2[0-3]):[0-5][0-9]$" title="Formato HH:MM" />
+                // Nunca oferecer entrada livre aqui: era o caminho que permitia ao
+                // admin agendar por cima de um bloqueio que ele mesmo criou.
+                <div style={modal.slotsEmpty}>
+                  {loadingSlots
+                    ? 'Buscando horários...'
+                    : !form.productId
+                      ? 'Selecione o serviço primeiro.'
+                      : 'Nenhum horário livre nesta data. O dia pode estar fechado, bloqueado ou lotado. Escolha outra data.'}
+                </div>
               )}
             </div>
           </div>
 
-          {selectedService && (
+          {selectedService && duracaoNum !== null && !duracaoInvalida && (
             <div style={modal.infoBox}>
-              ⏱ Duração: <strong>{selectedService.duration}min</strong>
+              Duração: <strong>{duracaoNum}min</strong>
+              {duracaoAlterada && ` (padrão: ${selectedService.duration}min)`}
               {selectedService.bufferTime > 0 && ` + ${selectedService.bufferTime}min intervalo`}
-              {form.time && ` · Término previsto: ${addMinutesToTime(form.time, selectedService.duration + selectedService.bufferTime)}`}
+              {form.time && ` · Término previsto: ${addMinutesToTime(form.time, duracaoNum + selectedService.bufferTime)}`}
             </div>
           )}
 
@@ -224,9 +280,11 @@ function addMinutesToTime(timeStr, minutes) {
 function OrderCard({ order, onStatusChange }) {
   const [open, setOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [statusError, setStatusError] = useState('');
 
   const timeStr = order.scheduledAt ? formatTime(order.scheduledAt) : order.scheduledTime || '';
-  const dur     = order.product?.duration || 30;
+  // durationOverride: tempo personalizado definido para este atendimento
+  const dur     = order.durationOverride || order.product?.duration || 30;
   const endStr  = order.scheduledAt ? addMinutesToTime(timeStr, dur) : '';
   const color   = STATUS_COLOR[order.status] || '#888';
 
@@ -235,8 +293,12 @@ function OrderCard({ order, onStatusChange }) {
     try {
       await ordersAPI.updateStatus(order.id, status);
       onStatusChange(order.id, status);
+      setStatusError('');
       setOpen(false);
-    } catch {}
+    } catch (err) {
+      // Falha silenciosa aqui fazia o admin acreditar que confirmou/cancelou.
+      setStatusError(err.message || 'Não foi possível alterar o status.');
+    }
     finally { setUpdating(false); }
   }
 
@@ -246,7 +308,7 @@ function OrderCard({ order, onStatusChange }) {
         onClick={() => setOpen(!open)}
         style={{
           background: color + '22',
-          borderLeft: `3px solid ${color}`,
+          border: `1px solid ${color}55`,
           borderRadius: 6,
           padding: '3px 6px',
           fontSize: 11,
@@ -257,35 +319,40 @@ function OrderCard({ order, onStatusChange }) {
           lineHeight: 1.4,
         }}
       >
-        <strong style={{ color }}>{timeStr}{endStr ? `–${endStr}` : ''}</strong>
+        <strong style={{ color }}>{timeStr}{endStr ? ` a ${endStr}` : ''}</strong>
         <div style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {order.customerName} · {order.product?.name}
         </div>
-        {order.professional && <div style={{ color: '#666', fontSize: 10 }}>👤 {order.professional.name}</div>}
+        {order.professional && <div style={{ color: 'var(--text-secondary)', fontSize: 10 }}>{order.professional.name}</div>}
       </div>
 
       {open && (
         <div style={popover.box}>
           <div style={popover.header}>
             <span style={{ fontWeight: 700 }}>#{order.id} {order.customerName}</span>
-            <button style={popover.closeBtn} onClick={() => setOpen(false)}>✕</button>
+            <button style={popover.closeBtn} aria-label="Fechar" onClick={() => setOpen(false)}><UIIcon name="close" /></button>
           </div>
-          <div style={popover.row}><span>📦</span> {order.product?.name}</div>
-          {order.professional && <div style={popover.row}><span>👤</span> {order.professional.name}</div>}
-          <div style={popover.row}><span>🕐</span> {timeStr}{endStr ? ` – ${endStr}` : ''}</div>
-          <div style={popover.row}><span>📞</span> {order.customerPhone}</div>
-          {order.notes && <div style={popover.row}><span>💬</span> {order.notes}</div>}
+          <div style={popover.row}><span><UIIcon name="services" size={15} /></span> {order.product?.name}</div>
+          {order.professional && <div style={popover.row}><span><UIIcon name="professionals" size={15} /></span> {order.professional.name}</div>}
+          <div style={popover.row}><span><UIIcon name="clock" size={15} /></span> {timeStr}{endStr ? ` às ${endStr}` : ''}</div>
+          <div style={popover.row}><span><UIIcon name="phone" size={15} /></span> {order.customerPhone}</div>
+          {order.notes && <div style={popover.row}><span><UIIcon name="chat" size={15} /></span> {order.notes}</div>}
           <div style={{ ...popover.row, alignItems: 'center' }}>
-            <span>🔖</span>
+            <span><UIIcon name="check" size={15} /></span>
             <span style={{ background: color + '22', color, fontSize: 11, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
               {STATUS_LABEL[order.status]}
             </span>
           </div>
+          {statusError && (
+            <div style={{ background: '#fee2e2', color: '#dc2626', padding: '6px 10px', borderRadius: 6, fontSize: 12, marginTop: 6 }}>
+              {statusError}
+            </div>
+          )}
           {order.status !== 'completed' && order.status !== 'cancelled' && (
             <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-              {order.status !== 'confirmed'  && <button style={popover.actionBtn('#3b82f6')} disabled={updating} onClick={() => handleStatus('confirmed')}>✅ Confirmar</button>}
-              {order.status !== 'completed'  && <button style={popover.actionBtn('#10b981')} disabled={updating} onClick={() => handleStatus('completed')}>🎉 Concluído</button>}
-              <button style={popover.actionBtn('#ef4444')} disabled={updating} onClick={() => handleStatus('cancelled')}>❌ Cancelar</button>
+              {order.status !== 'confirmed'  && <button style={popover.actionBtn('#2563eb')} disabled={updating} onClick={() => handleStatus('confirmed')}>Confirmar</button>}
+              {order.status !== 'completed'  && <button style={popover.actionBtn('#10b981')} disabled={updating} onClick={() => handleStatus('completed')}>Concluir</button>}
+              <button style={popover.actionBtn('#ef4444')} disabled={updating} onClick={() => handleStatus('cancelled')}>Cancelar</button>
             </div>
           )}
         </div>
@@ -319,14 +386,14 @@ function WeekGrid({ weekDays, orders, onStatusChange }) {
       {weekDays.map(day => {
         const dateStr  = toLocalDateStr(day);
         const dayOrders = ordersByDay[dateStr] || [];
-        const today    = toLocalDateStr(new Date(Date.now() - 3 * 60 * 60 * 1000));
+        const today    = toLocalDateStr(nowBRT());
         const isToday  = (dateStr === today);
 
         return (
-          <div key={dateStr} style={{ ...grid.dayCol, background: isToday ? '#f0efff' : '#fff' }}>
-            <div style={{ ...grid.dayHeader, color: isToday ? '#6C63FF' : '#333', fontWeight: isToday ? 700 : 500 }}>
-              {WEEKDAY_SHORT[day.getDay()]}<br />
-              <span style={{ fontSize: 18, fontWeight: 700 }}>{day.getDate()}</span>
+          <div key={dateStr} style={{ ...grid.dayCol, background: isToday ? 'var(--tint-surface)' : 'var(--bg-card)' }}>
+            <div style={{ ...grid.dayHeader, color: isToday ? 'var(--ink-accent)' : 'var(--text-secondary)', fontWeight: isToday ? 700 : 500 }}>
+              {WEEKDAY_SHORT[day.getUTCDay()]}<br />
+              <span style={{ fontSize: 18, fontWeight: 700 }}>{day.getUTCDate()}</span>
             </div>
             <div style={grid.dayBody}>
               {HOURS.map(h => (
@@ -336,9 +403,12 @@ function WeekGrid({ weekDays, orders, onStatusChange }) {
                 const { h, m } = parseBRT(order.scheduledAt);
                 if (h < START_HOUR || h >= END_HOUR) return null;
                 const top    = minutesToTop(h, m, START_HOUR);
-                const height = Math.max(((order.product?.duration || 30) / 60) * SLOT_PX, 24);
+                // Altura = tempo REALMENTE ocupado na agenda (atendimento + intervalo),
+                // que é o mesmo critério usado pelo servidor para liberar o próximo slot.
+                const ocupado = (order.durationOverride || order.product?.duration || 30) + (order.product?.bufferTime || 0);
+                const height  = Math.max((ocupado / 60) * SLOT_PX, 24);
                 return (
-                  <div key={order.id} style={{ position: 'absolute', top, left: 2, right: 2, zIndex: 2 }}>
+                  <div key={order.id} style={{ position: 'absolute', top, minHeight: height, left: 2, right: 2, zIndex: 2 }}>
                     <OrderCard order={order} onStatusChange={onStatusChange} />
                   </div>
                 );
@@ -354,23 +424,28 @@ function WeekGrid({ weekDays, orders, onStatusChange }) {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AgendaPage() {
-  const [anchor, setAnchor]       = useState(() => weekStart(new Date(Date.now() - 3 * 60 * 60 * 1000)));
+  const [anchor, setAnchor]       = useState(() => weekStart(nowBRT()));
   const [orders, setOrders]       = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [modalDate, setModalDate] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(anchor, i));
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      const start = toLocalDateStr(weekDays[0]);
-      const end   = toLocalDateStr(weekDays[6]);
+      const start = toLocalDateStr(anchor);
+      const end   = toLocalDateStr(addDays(anchor, 6));
       const data  = await api.get(`/orders/agenda?start=${start}&end=${end}`);
       setOrders(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
+      // Não silenciar: uma agenda vazia por erro é indistinguível de uma
+      // agenda vazia de verdade, e foi isso que mascarou a rota faltante.
       setOrders([]);
+      setLoadError(err.message || 'Não foi possível carregar a agenda.');
     } finally {
       setLoading(false);
     }
@@ -386,9 +461,9 @@ export default function AgendaPage() {
     setOrders(prev => [...prev, order]);
   }
 
-  const todayStr   = toLocalDateStr(new Date(Date.now() - 3 * 60 * 60 * 1000));
-  const monthLabel = MONTH_NAMES[weekDays[0].getMonth()];
-  const yearLabel  = weekDays[0].getFullYear();
+  const todayStr   = toLocalDateStr(nowBRT());
+  const monthLabel = MONTH_NAMES[weekDays[0].getUTCMonth()];
+  const yearLabel  = weekDays[0].getUTCFullYear();
 
   return (
     <div style={page.container}>
@@ -396,7 +471,7 @@ export default function AgendaPage() {
       {/* Header */}
       <div style={page.header}>
         <div>
-          <h1 style={page.title}>📅 Agenda</h1>
+          <h1 style={page.title}>Agenda</h1>
           <div style={page.subtitle}>{monthLabel} {yearLabel}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -406,6 +481,13 @@ export default function AgendaPage() {
           <button style={page.newBtn} onClick={() => { setModalDate(todayStr); setShowModal(true); }}>+ Agendar</button>
         </div>
       </div>
+
+      {loadError && (
+        <div style={page.loadError}>
+          {loadError}{' '}
+          <button style={page.retryBtn} onClick={fetchOrders}>Tentar novamente</button>
+        </div>
+      )}
 
       {loading ? (
         <div style={page.loading}>Carregando agenda...</div>
@@ -421,12 +503,12 @@ export default function AgendaPage() {
         if (!legacy.length) return null;
         return (
           <div style={page.legacySection}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>📋 Agendamentos sem horário estruturado</h3>
+            <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Agendamentos sem horário estruturado</h3>
             {legacy.map(o => (
               <div key={o.id} style={page.legacyCard}>
                 <div style={{ fontWeight: 600 }}>{o.customerName} · {o.product?.name}</div>
-                <div style={{ fontSize: 13, color: '#666' }}>🕐 {o.scheduledTime} · 📞 {o.customerPhone}</div>
-                {o.professional && <div style={{ fontSize: 12, color: '#888' }}>👤 {o.professional.name}</div>}
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{o.scheduledTime} · {o.customerPhone}</div>
+                {o.professional && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{o.professional.name}</div>}
                 <span style={{ fontSize: 11, background: (STATUS_COLOR[o.status]||'#888')+'22', color: STATUS_COLOR[o.status]||'#888', padding:'2px 8px', borderRadius: 6, fontWeight: 600 }}>
                   {STATUS_LABEL[o.status]}
                 </span>
@@ -454,10 +536,37 @@ const page = {
   header:        { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 },
   title:         { fontSize: 26, fontWeight: 700, margin: 0 },
   subtitle:      { color: '#666', fontSize: 14, marginTop: 4 },
-  navBtn:        { background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13 },
-  todayBtn:      { background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: '#6C63FF', fontWeight: 600 },
-  newBtn:        { background: '#6C63FF', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', cursor: 'pointer', fontSize: 14, fontWeight: 700 },
+  // Grafite sóbrio + vidro contido, espelhando .btn/.btn-primary de sophisticated.css.
+  // Estes botões usam estilo inline, então não herdam aquelas classes.
+  navBtn: {
+    background: 'var(--btn-surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-btn)',
+    padding: '7px 14px', cursor: 'pointer', fontSize: 13,
+    color: 'var(--text-primary)', fontWeight: 500,
+    boxShadow: 'var(--btn-glass-shadow)',
+    transition: 'background-color 180ms cubic-bezier(.2,.8,.2,1), border-color 180ms cubic-bezier(.2,.8,.2,1)',
+  },
+  todayBtn: {
+    background: 'var(--btn-graphite)',
+    border: '1px solid var(--btn-graphite)',
+    borderRadius: 'var(--radius-btn)',
+    padding: '7px 14px', cursor: 'pointer', fontSize: 13,
+    color: '#fff', fontWeight: 600,
+    boxShadow: 'var(--btn-glass-shadow)',
+  },
+  newBtn: {
+    background: 'var(--btn-graphite)',
+    color: '#fff',
+    border: '1px solid var(--btn-graphite)',
+    borderRadius: 'var(--radius-btn)',
+    padding: '8px 16px', cursor: 'pointer', fontSize: 14, fontWeight: 700,
+    boxShadow: 'var(--btn-glass-shadow)',
+    transition: 'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms cubic-bezier(.2,.8,.2,1)',
+  },
   loading:       { textAlign: 'center', padding: 60, color: '#888' },
+  loadError:     { background: '#fee2e2', color: '#dc2626', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 },
+  retryBtn:      { background: 'var(--btn-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderRadius: 'var(--radius-btn)', padding: '6px 12px', fontSize: 13, cursor: 'pointer', marginLeft: 4, boxShadow: 'var(--btn-glass-shadow)' },
   scrollArea:    { overflowX: 'auto' },
   legacySection: { marginTop: 24, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: 16 },
   legacyCard:    { background: '#fff', border: '1px solid #eee', borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 4 },
@@ -479,7 +588,7 @@ const popover = {
   header:    { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   closeBtn:  { background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 16 },
   row:       { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, marginBottom: 5 },
-  actionBtn: (color) => ({ background: color+'11', color, border: `1px solid ${color}44`, borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }),
+  actionBtn: () => ({ background: 'var(--btn-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-btn)', padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600, boxShadow: 'var(--btn-glass-shadow)' }),
 };
 
 const modal = {
@@ -493,7 +602,9 @@ const modal = {
   field:       { flex: 1, display: 'flex', flexDirection: 'column', gap: 4 },
   label:       { fontSize: 13, fontWeight: 600, color: '#444' },
   input:       { padding: '9px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, width: '100%', boxSizing: 'border-box', background: '#fff' },
-  infoBox:     { background: '#f0efff', border: '1px solid #c4b5fd', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#5b4fff' },
-  btnPrimary:  { background: '#6C63FF', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer', fontSize: 14 },
-  btnSecondary:{ background: '#f3f4f6', color: '#333', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontSize: 14 },
+  infoBox:     { ...tint, padding: '8px 12px', fontSize: 13 },
+  slotsEmpty:  { background: '#f9f9f9', border: '1px dashed #ddd', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#777', lineHeight: 1.4 },
+  hint:        { fontSize: 12, color: '#777', marginTop: 5, lineHeight: 1.4 },
+  btnPrimary:  { ...btnPrimary, fontWeight: 700, fontSize: 14 },
+  btnSecondary:{ background: 'var(--btn-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-btn)', padding: '8px 16px', cursor: 'pointer', fontSize: 14, boxShadow: 'var(--btn-glass-shadow)' },
 };

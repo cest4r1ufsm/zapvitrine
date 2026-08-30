@@ -4,6 +4,18 @@ const path = require('path');
 const fs = require('fs');
 const prisma = require('../lib/prisma');
 const { isEligible } = require('../middleware/premium');
+const { withStoreLock } = require('../utils/bookingLock');
+const { registrarCliente } = require('../utils/clients');
+const {
+  getAvailableSlots,
+  getAvailableDates,
+  buildScheduledAt,
+  formatDateBR,
+  getDayLabelBR,
+  parseConfig,
+  timeToMinutes,
+  DAYS,
+} = require('../utils/availability');
 
 // Suppress Baileys verbose logging
 const pino = require('pino');
@@ -267,6 +279,12 @@ async function handleIncomingMessage(storeId, socket, from, text, msg) {
     const convoKey = `${storeId}:${from}`;
     const convo = conversations.get(convoKey);
 
+    // B18 — primeira mensagem de uma conversa fora do horário de funcionamento:
+    // apenas AVISA (a loja pode receber agendamento para os próximos dias)
+    if (!convo) {
+      await maybeSendAwayMessage(store, socket, from, convoKey);
+    }
+
     // Cancel / menu
     if (['cancelar', 'voltar', 'menu', 'inicio', 'início', 'oi', 'olá', 'ola', 'hi', 'hello'].includes(msgLower)) {
       conversations.delete(convoKey);
@@ -323,7 +341,7 @@ async function sendCatalog(store, socket, from) {
     const num = (idx + 1).toString();
     categoryMap.push({ num, id: cat.id });
     const count = store.products.filter(p => p.categoryId === cat.id).length;
-    msg += `➡️ *${num}* — ${cat.name} (${count} itens)\n`;
+    msg += `➡️ *${num}.* ${cat.name} (${count} itens)\n`;
   });
   msg += `\n_Envie o número da categoria_`;
 
@@ -347,7 +365,7 @@ async function sendCategoryProducts(store, socket, from, categoryId) {
   products.forEach((p, idx) => {
     const num = (idx + 1).toString();
     productMap.push({ num, id: p.id });
-    msg += `🔹 *${num}* — ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
+    msg += `🔹 *${num}.* ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
     if (p.description) msg += `   _${p.description}_\n`;
   });
   msg += `\n_Para pedir, envie o número do produto. Ou envie "menu" para voltar._`;
@@ -382,7 +400,7 @@ async function sendAllProducts(store, socket, from) {
       const num = productCounter.toString();
       productMap.push({ num, id: p.id });
       productCounter++;
-      msg += `  🔹 *${num}* — ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
+      msg += `  🔹 *${num}.* ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
     });
     msg += '\n';
   });
@@ -406,7 +424,7 @@ async function sendOrderMenu(store, socket, from) {
   products.forEach((p, idx) => {
     const num = (idx + 1).toString();
     productMap.push({ num, id: p.id });
-    msg += `🔹 *${num}* — ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
+    msg += `🔹 *${num}.* ${p.name} (R$ ${p.price.toFixed(2).replace('.', ',')})\n`;
   });
   msg += `\n_Envie o número do produto desejado_`;
 
@@ -437,6 +455,188 @@ async function startOrderFlow(store, socket, from, convoKey, productId) {
   msg += `Para prosseguir, me diga:\n\n👤 *Qual é o seu nome?*`;
 
   await sendText(socket, from, msg);
+}
+
+// ===== AGENDAMENTO GUIADO (disponibilidade real) =====
+
+const SLOTS_PER_PAGE = 12;
+const NUM_EMOJI = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+const AWAY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+// Avisos de "fora do horário" já enviados: convoKey -> timestamp
+const awayNotified = new Map();
+
+function numLabel(n) {
+  return NUM_EMOJI[n] ? `*${NUM_EMOJI[n]}*` : `*${n}*`;
+}
+
+function storeContactLine(store) {
+  return store.phone
+    ? `📞 Fale direto com a gente: *${store.phone}*`
+    : '📞 Fale direto com a loja para combinar um horário.';
+}
+
+// A loja está aberta AGORA? Convenção de fuso "fake UTC = BRT (UTC-3)", igual a utils/availability
+function isStoreOpenNow(store) {
+  const config = parseConfig(store.schedulingConfig);
+  const nowBRT = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const day = config.hours[DAYS[nowBRT.getUTCDay()]];
+  if (!day?.active) return false;
+
+  const nowMin = nowBRT.getUTCHours() * 60 + nowBRT.getUTCMinutes();
+  const open = timeToMinutes(day.open);
+  const close = timeToMinutes(day.close);
+  if (open === null || close === null) return false;
+
+  return nowMin >= open && nowMin < close;
+}
+
+// Só informa — NUNCA bloqueia o agendamento
+async function maybeSendAwayMessage(store, socket, from, convoKey) {
+  try {
+    const away = (store.botAwayMessage || '').trim();
+    if (!away || isStoreOpenNow(store)) return;
+
+    const last = awayNotified.get(convoKey) || 0;
+    if (Date.now() - last < AWAY_COOLDOWN_MS) return;
+
+    if (awayNotified.size > 2000) {
+      for (const [key, ts] of awayNotified) {
+        if (Date.now() - ts > AWAY_COOLDOWN_MS) awayNotified.delete(key);
+      }
+    }
+    awayNotified.set(convoKey, Date.now());
+
+    await sendText(socket, from, `🌙 ${away}\n\n_Você pode deixar seu agendamento por aqui mesmo. É só escolher um dos horários da lista._`);
+  } catch (error) {
+    console.error('Erro ao enviar mensagem de fora do horário:', error.message);
+  }
+}
+
+// Falha de consulta à agenda: pede desculpas e limpa a conversa
+async function failScheduling(store, socket, from, convoKey, error) {
+  console.error('Erro ao consultar disponibilidade:', error?.message || error);
+  conversations.delete(convoKey);
+  await sendText(socket, from, `😥 *Ops!* Tive um problema para consultar a agenda agora.\n\n${storeContactLine(store)}\n\n_Envie "menu" para tentar de novo_`);
+}
+
+function buildProfessionalsMessage(professionalMap, prefix = '') {
+  let msg = `${prefix}👤 *Com quem você quer ser atendido(a)?*\n\n`;
+  professionalMap.forEach(p => {
+    msg += `${numLabel(Number(p.num))} ${p.id === null ? '✨ ' : ''}${p.name}\n`;
+  });
+  msg += `\n_Envie o número da opção desejada_`;
+  return msg;
+}
+
+function buildDatesMessage(convo, prefix = '') {
+  let msg = `${prefix}📅 *Para qual dia?*\n\n`;
+  convo.dateMap.forEach(d => {
+    const label = `${getDayLabelBR(d.date)} ${formatDateBR(d.date)}`;
+    msg += `${numLabel(Number(d.num))} ${label}: ${d.count} ${d.count === 1 ? 'horário' : 'horários'}\n`;
+  });
+  msg += `\n_Envie o número do dia desejado_`;
+  return msg;
+}
+
+function buildSlotsMessage(convo, prefix = '') {
+  const total = convo.slots.length;
+  const pages = Math.max(Math.ceil(total / SLOTS_PER_PAGE), 1);
+  const page = convo.slotPage || 0;
+  const start = page * SLOTS_PER_PAGE;
+  const visible = convo.slots.slice(start, start + SLOTS_PER_PAGE);
+
+  let msg = `${prefix}🕐 *Horários livres para ${getDayLabelBR(convo.data.date)} ${formatDateBR(convo.data.date)}*\n\n`;
+  visible.forEach((slot, idx) => {
+    msg += `${numLabel(start + idx + 1)} ${slot}\n`;
+  });
+  if (pages > 1) {
+    msg += `\n${numLabel(0)} Ver mais horários _(página ${page + 1} de ${pages})_\n`;
+  }
+  msg += `\n_Envie o número do horário desejado_`;
+  return msg;
+}
+
+// Passo 1 — profissional (pulado quando a loja não tem equipe cadastrada)
+async function startScheduleFlow(store, socket, from, convoKey, convo) {
+  let professionals = [];
+  try {
+    professionals = await prisma.professional.findMany({
+      where: { storeId: store.id, active: true },
+      orderBy: { id: 'asc' },
+      select: { id: true, name: true },
+    });
+  } catch (error) {
+    return failScheduling(store, socket, from, convoKey, error);
+  }
+
+  if (professionals.length === 0) {
+    convo.data.professionalId = null;
+    convo.data.professionalName = null;
+    conversations.set(convoKey, convo);
+    return sendDateOptions(store, socket, from, convoKey, convo);
+  }
+
+  const professionalMap = professionals.slice(0, 20).map((p, idx) => ({
+    num: String(idx + 1),
+    id: p.id,
+    name: p.name,
+  }));
+  professionalMap.push({ num: String(professionalMap.length + 1), id: null, name: 'Qualquer profissional' });
+
+  convo.professionalMap = professionalMap;
+  convo.step = 'choose_professional';
+  conversations.set(convoKey, convo);
+
+  await sendText(socket, from, buildProfessionalsMessage(professionalMap));
+}
+
+// Passo 2 — dias com pelo menos um horário livre (próximos 7 dias úteis da agenda)
+async function sendDateOptions(store, socket, from, convoKey, convo, prefix = '') {
+  let dates;
+  try {
+    dates = await getAvailableDates(prisma, store.id, convo.productId, convo.data.professionalId ?? null, 7);
+  } catch (error) {
+    return failScheduling(store, socket, from, convoKey, error);
+  }
+
+  if (!dates || dates.length === 0) {
+    conversations.delete(convoKey);
+    await sendText(socket, from, `${prefix}😕 *Não encontrei horários livres nos próximos dias.*\n\n${storeContactLine(store)}\n\n_Envie "menu" para voltar ao início_`);
+    return;
+  }
+
+  convo.dateMap = dates.map((d, idx) => ({ num: String(idx + 1), date: d.date, count: d.slots.length }));
+  convo.step = 'choose_date';
+  conversations.set(convoKey, convo);
+
+  await sendText(socket, from, buildDatesMessage(convo, prefix));
+}
+
+// Passo 3 — horários reais da data escolhida (paginados)
+async function sendTimeOptions(store, socket, from, convoKey, convo, options = {}) {
+  const { refresh = true, page = 0, prefix = '' } = options;
+
+  if (refresh) {
+    let slots;
+    try {
+      slots = await getAvailableSlots(prisma, store.id, convo.data.date, convo.productId, convo.data.professionalId ?? null);
+    } catch (error) {
+      return failScheduling(store, socket, from, convoKey, error);
+    }
+    if (!slots || slots.length === 0) {
+      // Alguém pegou o último horário: volta para a escolha de data
+      return sendDateOptions(store, socket, from, convoKey, convo, '😕 *Os horários desse dia acabaram de ser preenchidos.*\n\n');
+    }
+    convo.slots = slots;
+  }
+
+  const pages = Math.max(Math.ceil(convo.slots.length / SLOTS_PER_PAGE), 1);
+  convo.slotPage = ((page % pages) + pages) % pages;
+  convo.step = 'choose_time';
+  conversations.set(convoKey, convo);
+
+  await sendText(socket, from, buildSlotsMessage(convo, prefix));
 }
 
 async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) {
@@ -478,10 +678,9 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
 
     case 'ask_type': {
       if (text === '1' || text.toLowerCase().includes('hor') || text.toLowerCase().includes('agend')) {
-        convo.step = 'ask_time';
         convo.data.type = 'schedule';
         conversations.set(convoKey, convo);
-        await sendText(socket, from, `🕐 *Qual horário e dia você prefere?*\n\nExemplos:\n• "Amanhã às 14h"\n• "Sábado de manhã"\n• "26/03 às 10:00"`);
+        await startScheduleFlow(store, socket, from, convoKey, convo);
       } else {
         convo.step = 'ask_address';
         convo.data.type = 'delivery';
@@ -491,11 +690,77 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
       break;
     }
 
-    case 'ask_time': {
-      convo.data.scheduledTime = text;
+    case 'choose_professional': {
+      if (!convo.professionalMap?.length) {
+        await startScheduleFlow(store, socket, from, convoKey, convo);
+        break;
+      }
+      const match = convo.professionalMap.find(p => p.num === text.trim());
+      if (!match) {
+        await sendText(socket, from, buildProfessionalsMessage(convo.professionalMap, '❌ *Não entendi.* Escolha uma das opções abaixo 👇\n\n'));
+        break;
+      }
+      convo.data.professionalId = match.id;
+      convo.data.professionalName = match.id === null ? null : match.name;
+      conversations.set(convoKey, convo);
+      await sendDateOptions(store, socket, from, convoKey, convo);
+      break;
+    }
+
+    case 'choose_date': {
+      if (!convo.dateMap?.length) {
+        await sendDateOptions(store, socket, from, convoKey, convo);
+        break;
+      }
+      const match = convo.dateMap.find(d => d.num === text.trim());
+      if (!match) {
+        await sendText(socket, from, buildDatesMessage(convo, '❌ *Não entendi.* Escolha um dos dias abaixo 👇\n\n'));
+        break;
+      }
+      convo.data.date = match.date;
+      conversations.set(convoKey, convo);
+      await sendTimeOptions(store, socket, from, convoKey, convo, { refresh: true, page: 0 });
+      break;
+    }
+
+    case 'choose_time': {
+      const answer = text.trim();
+
+      if (!convo.slots?.length || !convo.data.date) {
+        await sendTimeOptions(store, socket, from, convoKey, convo, { refresh: true, page: 0 });
+        break;
+      }
+
+      // Paginação: "0" mostra o próximo bloco de horários
+      if (answer === '0') {
+        await sendTimeOptions(store, socket, from, convoKey, convo, { refresh: false, page: (convo.slotPage || 0) + 1 });
+        break;
+      }
+
+      const index = /^\d+$/.test(answer) ? parseInt(answer, 10) : 0;
+      const chosen = (index >= 1 && index <= convo.slots.length) ? convo.slots[index - 1] : null;
+      if (!chosen) {
+        await sendText(socket, from, buildSlotsMessage(convo, '❌ *Não entendi.* Envie o *número* do horário 👇\n\n'));
+        break;
+      }
+
+      convo.data.time = chosen;
+      conversations.set(convoKey, convo);
+
+      // Se as observações já foram coletadas (retorno após horário perdido), salva direto
+      if (convo.data.notesDone) {
+        await saveOrder(store, socket, from, convoKey, convo, msg);
+        break;
+      }
+
       convo.step = 'ask_notes';
       conversations.set(convoKey, convo);
-      await sendText(socket, from, `⏰ Horário: *${text}*\n\n💬 Deseja adicionar alguma observação?\n\n*1️⃣* Sem observação\n*2️⃣* Sim, quero adicionar\n\n_Envie 1 ou 2, ou escreva sua observação direto_`);
+
+      let resumo = `✅ *${getDayLabelBR(convo.data.date)} ${formatDateBR(convo.data.date)} às ${chosen}*\n`;
+      if (convo.data.professionalName) resumo += `👤 Com *${convo.data.professionalName}*\n`;
+      resumo += `\n💬 Deseja adicionar alguma observação?\n\n*1️⃣* Sem observação\n*2️⃣* Sim, quero adicionar\n\n_Envie 1 ou 2, ou escreva sua observação direto_`;
+
+      await sendText(socket, from, resumo);
       break;
     }
 
@@ -510,6 +775,7 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
     case 'ask_notes': {
       if (text === '1' || text.toLowerCase() === 'sem' || text.toLowerCase() === 'não' || text.toLowerCase() === 'nao') {
         convo.data.notes = null;
+        convo.data.notesDone = true;
         await saveOrder(store, socket, from, convoKey, convo, msg);
       } else if (text === '2') {
         convo.step = 'typing_notes';
@@ -517,6 +783,7 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
         await sendText(socket, from, '✏️ Escreva sua observação:');
       } else {
         convo.data.notes = text;
+        convo.data.notesDone = true;
         await saveOrder(store, socket, from, convoKey, convo, msg);
       }
       break;
@@ -524,6 +791,7 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
 
     case 'typing_notes': {
       convo.data.notes = text;
+      convo.data.notesDone = true;
       await saveOrder(store, socket, from, convoKey, convo, msg);
       break;
     }
@@ -535,9 +803,13 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
 }
 
 async function saveOrder(store, socket, from, convoKey, convo, msg) {
+  const isSchedule = convo.data.type === 'schedule' && !!convo.data.date && !!convo.data.time;
+
+  // Revalida a disponibilidade ANTES de gravar — entre a escolha e a confirmação
+  // (o cliente digita as observações) outra pessoa pode ter pego o horário
   try {
     let customerPhone = from.split('@')[0];
-    
+
     // Fallback pra pegar o número real caso seja um @lid (ocorre quando a pessoa testa o bot mandando mensagem para si mesma)
     if (msg?.key?.participant) {
       customerPhone = msg.key.participant.split('@')[0];
@@ -545,19 +817,47 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
       customerPhone = socket.user.id.split(':')[0].split('@')[0];
     }
 
-    const order = await prisma.order.create({
-      data: {
-        storeId: store.id,
-        productId: convo.productId,
-        customerName: convo.data.name,
-        customerPhone: customerPhone,
-        customerAddress: convo.data.address || null,
-        scheduledTime: convo.data.scheduledTime || null,
-        notes: convo.data.notes || null,
-        status: 'pending',
-        totalPrice: convo.productPrice,
-      },
+    const scheduledLabel = isSchedule ? `${formatDateBR(convo.data.date)} ${convo.data.time}` : null;
+
+    // Revalidar + gravar sob o mesmo lock da loja: entre a escolha do horário e
+    // a confirmação o cliente digita as observações, e nesse intervalo outra
+    // pessoa (ou o painel) pode ter pegado o slot.
+    const order = await withStoreLock(store.id, async () => {
+      if (isSchedule) {
+        const slots = await getAvailableSlots(
+          prisma, store.id, convo.data.date, convo.productId, convo.data.professionalId ?? null,
+        );
+        if (!slots.includes(convo.data.time)) return null;
+      }
+
+      return prisma.order.create({
+        data: {
+          storeId: store.id,
+          productId: convo.productId,
+          professionalId: isSchedule ? (convo.data.professionalId ?? null) : null,
+          customerName: convo.data.name,
+          customerPhone: customerPhone,
+          customerAddress: convo.data.address || null,
+          scheduledAt: isSchedule ? buildScheduledAt(convo.data.date, convo.data.time) : null,
+          // scheduledTime legível: a Agenda do painel usa como fallback de exibição
+          scheduledTime: scheduledLabel,
+          notes: convo.data.notes || null,
+          status: 'pending',
+          totalPrice: convo.productPrice,
+        },
+      });
     });
+
+    if (!order) {
+      convo.data.time = null;
+      conversations.set(convoKey, convo);
+      await sendText(socket, from, `😔 *Poxa, esse horário acabou de ser reservado por outra pessoa.*\n\nSem problema. Escolha outro logo abaixo 👇`);
+      await sendTimeOptions(store, socket, from, convoKey, convo, { refresh: true, page: 0 });
+      return;
+    }
+
+    // Alimenta a tela "Clientes" do painel
+    await registrarCliente(prisma, store.id, convo.data.name, customerPhone);
 
     conversations.delete(convoKey);
 
@@ -565,7 +865,11 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
     resposta += `📦 *Produto:* ${convo.productName}\n`;
     resposta += `💰 *Valor:* R$ ${convo.productPrice.toFixed(2).replace('.', ',')}\n`;
     resposta += `👤 *Nome:* ${convo.data.name}\n`;
-    if (convo.data.scheduledTime) resposta += `🕐 *Horário:* ${convo.data.scheduledTime}\n`;
+    if (isSchedule) {
+      resposta += `📅 *Data:* ${getDayLabelBR(convo.data.date)} ${formatDateBR(convo.data.date)}\n`;
+      resposta += `🕐 *Horário:* ${convo.data.time}\n`;
+      resposta += `👥 *Profissional:* ${convo.data.professionalName || 'A definir pela loja'}\n`;
+    }
     if (convo.data.address) resposta += `📍 *Endereço:* ${convo.data.address}\n`;
     if (convo.data.notes) resposta += `💬 *Obs:* ${convo.data.notes}\n`;
     resposta += `\n✅ Status: *Aguardando confirmação*\n`;
@@ -602,7 +906,7 @@ async function sendMyOrders(store, socket, from) {
 
     let msg = `📄 *Seus Pedidos Recentes*\n\n`;
     orders.forEach(o => {
-      msg += `*#${o.id}* — ${o.product?.name || 'Produto'}\n`;
+      msg += `*Pedido #${o.id}:* ${o.product?.name || 'Produto'}\n`;
       msg += `  💰 R$ ${(o.totalPrice || 0).toFixed(2).replace('.', ',')}\n`;
       msg += `  ${statusEmoji[o.status] || '❓'} ${statusLabel[o.status] || o.status}\n\n`;
     });
@@ -684,4 +988,13 @@ async function sendMessageToCustomer(storeId, phone, text) {
   }
 }
 
-module.exports = { startSession, stopSession, getSessionStatus, restoreSessions, sendMessageToCustomer };
+module.exports = {
+  startSession,
+  stopSession,
+  getSessionStatus,
+  restoreSessions,
+  sendMessageToCustomer,
+  // Ponto de teste: permite exercitar o fluxo de conversa sem abrir uma sessão
+  // real do WhatsApp. Não altera o comportamento em produção.
+  __test: { handleIncomingMessage, conversations },
+};

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicAPI, UPLOADS_URL } from '../services/api';
+import UIIcon from '../components/UIIcon';
 
 function formatPrice(value) {
   return 'R$ ' + value.toFixed(2).replace('.', ',');
@@ -16,16 +17,16 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    let msg = `🛒 *Novo Pedido via Pedido Pronto!*\n\n`;
-    msg += `🏪 *${storeName}*\n\n`;
-    msg += `📦 *Itens:*\n`;
+    let msg = `*Novo pedido via AGTGestor*\n\n`;
+    msg += `*${storeName}*\n\n`;
+    msg += `*Itens:*\n`;
     cart.forEach(item => {
-      msg += `• ${item.qty}x ${item.name} — ${formatPrice(item.price * item.qty)}\n`;
+      msg += `• ${item.qty}x ${item.name}: ${formatPrice(item.price * item.qty)}\n`;
     });
-    msg += `\n💰 *Total: ${formatPrice(total)}*\n`;
-    if (customerName) msg += `\n👤 Nome: ${customerName}`;
-    if (customerPhone) msg += `\n📱 Tel: ${customerPhone}`;
-    msg += `\n\n📅 Pedido em ${dateStr} às ${timeStr}`;
+    msg += `\n*Total: ${formatPrice(total)}*\n`;
+    if (customerName) msg += `\nNome: ${customerName}`;
+    if (customerPhone) msg += `\nTelefone: ${customerPhone}`;
+    msg += `\n\nPedido em ${dateStr} às ${timeStr}`;
 
     const cleanPhone = phone.replace(/\D/g, '');
     const whatsPhone = cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone;
@@ -38,8 +39,8 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
       <div className="cart-panel-overlay" onClick={onClose} />
       <div className="cart-panel-content">
         <div className="cart-panel-header">
-          <h2>🛒 Seu Pedido</h2>
-          <button className="cart-close-btn" onClick={onClose}>✕</button>
+          <h2>Seu pedido</h2>
+          <button className="cart-close-btn" aria-label="Fechar pedido" onClick={onClose}><UIIcon name="close" /></button>
         </div>
         <div className="cart-items">
           {cart.map((item, i) => (
@@ -72,7 +73,7 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
             <span>{formatPrice(total)}</span>
           </div>
           <button className="whatsapp-btn" onClick={sendWhatsApp}>
-            💬 Enviar Pedido via WhatsApp
+            <UIIcon name="chat" size={17} /> Enviar pedido via WhatsApp
           </button>
         </div>
       </div>
@@ -93,7 +94,7 @@ export default function PublicStore() {
     publicAPI.getStore(slug)
       .then(data => {
         setStore(data);
-        document.title = `${data.name} | Pedido Pronto`;
+        document.title = `${data.name} | AGTGestor`;
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -128,7 +129,7 @@ export default function PublicStore() {
     return (
       <div className="public-store" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
         <div className="empty-state">
-          <div className="empty-icon">😕</div>
+          <div className="empty-icon"><UIIcon name="warning" size={28} /></div>
           <h3>Loja não encontrada</h3>
           <p>Verifique se o endereço está correto</p>
         </div>
@@ -136,7 +137,7 @@ export default function PublicStore() {
     );
   }
 
-  const themeColor = store.themeColor || '#6C63FF';
+  const themeColor = store.themeColor || '#2B3441';
 
   return (
     <div className="public-store">
@@ -150,14 +151,14 @@ export default function PublicStore() {
       <section className="store-hero" style={{ background: `linear-gradient(135deg, ${themeColor}11, ${themeColor}05)` }}>
         <div className="store-hero-content">
           <div className="store-logo-large" style={{ borderColor: themeColor + '40' }}>
-            {store.logoUrl ? <img src={UPLOADS_URL + store.logoUrl} alt={store.name} /> : '🏪'}
+            {store.logoUrl ? <img src={UPLOADS_URL + store.logoUrl} alt={store.name} /> : <span className="store-logo-fallback">{store.name?.slice(0, 2).toUpperCase()}</span>}
           </div>
           <h1>{store.name}</h1>
           {store.description && <p>{store.description}</p>}
           <div className="store-info-badges">
-            {store.address && <span className="store-info-badge">📍 {store.address}</span>}
-            {store.phone && <span className="store-info-badge">📱 WhatsApp</span>}
-            {store.businessHours && <span className="store-info-badge">🕐 {store.businessHours.split('\n')[0]}</span>}
+            {store.address && <span className="store-info-badge"><UIIcon name="pin" size={15} /> {store.address}</span>}
+            {store.phone && <span className="store-info-badge"><UIIcon name="chat" size={15} /> WhatsApp</span>}
+            {store.businessHours && <span className="store-info-badge"><UIIcon name="clock" size={15} /> {store.businessHours.split('\n')[0]}</span>}
           </div>
         </div>
       </section>
@@ -181,7 +182,7 @@ export default function PublicStore() {
 
       {filteredProducts.length === 0 ? (
         <div className="empty-state" style={{ padding: '80px 20px' }}>
-          <div className="empty-icon">📦</div>
+          <div className="empty-icon"><UIIcon name="orders" size={28} /></div>
           <h3>Nenhum produto disponível</h3>
           <p>Esta loja ainda não adicionou produtos</p>
         </div>
@@ -190,7 +191,7 @@ export default function PublicStore() {
           {filteredProducts.map(product => (
             <div key={product.id} className="product-public-card" onClick={() => addToCart(product)}>
               <div className="product-public-img">
-                {product.imageUrl ? <img src={UPLOADS_URL + product.imageUrl} alt={product.name} /> : <span className="placeholder">📷</span>}
+                {product.imageUrl ? <img src={UPLOADS_URL + product.imageUrl} alt={product.name} /> : <span className="placeholder"><UIIcon name="image" size={28} /></span>}
               </div>
               <div className="product-public-info">
                 <h3>{product.name}</h3>
@@ -213,7 +214,7 @@ export default function PublicStore() {
               <span>Ver pedido</span>
               <strong>{formatPrice(totalPrice)}</strong>
             </div>
-            <span style={{ fontSize: '1.3rem' }}>💬</span>
+            <UIIcon name="chat" size={20} />
           </div>
         </div>
       )}

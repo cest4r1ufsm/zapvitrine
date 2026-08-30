@@ -75,7 +75,7 @@ export default function LoginPage() {
           <Link to="/" className="auth-logo-link">
             <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </Link>
-          <span className="auth-eyebrow">— Acesse sua conta</span>
+          <span className="auth-eyebrow">Acesse sua conta</span>
           <p>Gestão de agenda e atendimentos</p>
         </div>
 

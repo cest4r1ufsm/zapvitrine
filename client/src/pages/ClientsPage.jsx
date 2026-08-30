@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import PageGuide from '../components/PageGuide';
+import UIIcon from '../components/UIIcon';
+import { avatar } from '../styles/surfaces';
 
 const GUIDE_STEPS = [
-  'Esta lista é <strong>preenchida automaticamente</strong> — todo cliente que agendar pelo chatbot aparece aqui com nome e telefone.',
+  'Esta lista é <strong>preenchida automaticamente</strong>. Todo cliente que agenda pelo chatbot aparece aqui com nome e telefone.',
   'Use a <strong>barra de busca</strong> para encontrar um cliente por nome ou número de telefone.',
   'Clique em qualquer cliente para ver o <strong>histórico completo</strong>: todos os serviços realizados, datas, profissionais e valores.',
   'Ótimo para fidelização: você sabe quando foi a última visita e quais serviços o cliente prefere.',
@@ -33,10 +35,10 @@ function HistoryModal({ client, onClose }) {
       <div style={modal.box} onClick={e => e.stopPropagation()}>
         <div style={modal.header}>
           <div>
-            <h2 style={{ margin: 0 }}>📋 Histórico</h2>
+            <h2 style={{ margin: 0 }}>Histórico</h2>
             <div style={{ color: '#666', fontSize: 14 }}>{client.name} · {client.phone}</div>
           </div>
-          <button style={modal.closeBtn} onClick={onClose}>✕</button>
+          <button style={modal.closeBtn} aria-label="Fechar" onClick={onClose}><UIIcon name="close" /></button>
         </div>
 
         {loading ? (
@@ -54,12 +56,12 @@ function HistoryModal({ client, onClose }) {
                   </span>
                 </div>
                 <div style={modal.itemDetail}>
-                  {order.professional && <span>👤 {order.professional.name} · </span>}
-                  {order.scheduledTime && <span>🕐 {order.scheduledTime} · </span>}
-                  <span>📅 {formatDate(order.createdAt)}</span>
-                  {order.totalPrice != null && <span> · 💰 R$ {order.totalPrice.toFixed(2).replace('.', ',')}</span>}
+                  {order.professional && <span>{order.professional.name} · </span>}
+                  {order.scheduledTime && <span>{order.scheduledTime} · </span>}
+                  <span>{formatDate(order.createdAt)}</span>
+                  {order.totalPrice != null && <span> · R$ {order.totalPrice.toFixed(2).replace('.', ',')}</span>}
                 </div>
-                {order.notes && <div style={modal.itemNotes}>💬 {order.notes}</div>}
+                {order.notes && <div style={modal.itemNotes}>{order.notes}</div>}
               </div>
             ))}
           </div>
@@ -92,7 +94,7 @@ export default function ClientsPage() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>📇 Clientes</h1>
+      <h1 style={styles.title}>Clientes</h1>
       <p style={styles.subtitle}>Lista de clientes que já realizaram agendamentos. Clique em um cliente para ver o histórico completo.</p>
 
       <PageGuide pageKey="clients" title="Como usar a lista de clientes" steps={GUIDE_STEPS} color="#10b981" />
@@ -101,7 +103,7 @@ export default function ClientsPage() {
 
       <input
         style={styles.search}
-        placeholder="🔍  Buscar por nome ou telefone..."
+        placeholder="Buscar por nome ou telefone..."
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
@@ -117,7 +119,7 @@ export default function ClientsPage() {
               <div style={styles.avatar}>{client.name[0].toUpperCase()}</div>
               <div style={styles.info}>
                 <div style={styles.name}>{client.name}</div>
-                <div style={styles.phone}>📞 {client.phone}</div>
+                <div style={styles.phone}><UIIcon name="phone" size={15} /> {client.phone}</div>
               </div>
               <div style={styles.meta}>
                 <div style={styles.count}>{client.totalOrders} agendamento{client.totalOrders !== 1 ? 's' : ''}</div>
@@ -146,12 +148,12 @@ const styles = {
   empty: { textAlign: 'center', padding: 48, color: '#666', background: '#f9f9f9', borderRadius: 12, whiteSpace: 'pre-line' },
   list: { display: 'flex', flexDirection: 'column', gap: 10 },
   card: { display: 'flex', alignItems: 'center', gap: 14, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '14px 18px', cursor: 'pointer', transition: 'box-shadow 0.15s' },
-  avatar: { width: 44, height: 44, borderRadius: '50%', background: '#6C63FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 20, flexShrink: 0 },
+  avatar: { ...avatar, width: 44, height: 44, borderRadius: '50%', fontSize: 20 },
   info: { flex: 1 },
   name: { fontWeight: 600, fontSize: 16 },
   phone: { fontSize: 13, color: '#888', marginTop: 2 },
   meta: { textAlign: 'right' },
-  count: { fontWeight: 600, fontSize: 14, color: '#6C63FF' },
+  count: { fontWeight: 600, fontSize: 14, color: 'var(--ink-accent)' },
   last: { fontSize: 12, color: '#aaa', marginTop: 2 },
   arrow: { fontSize: 22, color: '#ccc', marginLeft: 4 },
 };
