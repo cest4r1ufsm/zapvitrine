@@ -2,6 +2,8 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
@@ -253,6 +255,48 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// Excluir conta: apaga usuário, loja e tudo ligado a ela (cascade no banco),
+// desconecta o WhatsApp, cancela a assinatura do Stripe e remove as imagens.
+// Exigido pela Play Store para apps com criação de conta.
+router.delete('/account', auth, loginLimiter, async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!password || !(await bcrypt.compare(password, req.user.password))) {
+      return res.status(400).json({ error: 'Senha incorreta' });
+    }
+
+    const store = await prisma.store.findUnique({
+      where: { userId: req.user.id },
+      include: { products: { select: { imageUrl: true } } },
+    });
+
+    if (store) {
+      // require tardio evita ciclo de dependência (whatsapp → premium → prisma)
+      const { stopSession } = require('../services/whatsapp');
+      await stopSession(store.id).catch((err) => console.error('Excluir conta: WhatsApp', err.message));
+
+      if (store.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        await stripe.subscriptions.cancel(store.stripeSubscriptionId)
+          .catch((err) => console.error('Excluir conta: Stripe', err.message));
+      }
+
+      const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+      const files = [store.logoUrl, store.bannerUrl, ...store.products.map((p) => p.imageUrl)];
+      for (const url of files) {
+        if (!url || !url.startsWith('/uploads/')) continue;
+        fs.rm(path.join(uploadsDir, path.basename(url)), { force: true }, () => {});
+      }
+    }
+
+    await prisma.user.delete({ where: { id: req.user.id } });
+    res.json({ success: true, message: 'Conta excluída.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao excluir conta' });
+  }
+});
+
 // Get current user
 router.get('/me', auth, async (req, res) => {
   try {
@@ -265,7 +309,7 @@ router.get('/me', auth, async (req, res) => {
     // Nunca enviar segredos/ids internos ao navegador
     let safeStore = null;
     if (store) {
-      const { botToken, stripeCustomerId, stripeSubscriptionId, ...rest } = store;
+      const { botToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...rest } = store;
       safeStore = rest;
     }
 
