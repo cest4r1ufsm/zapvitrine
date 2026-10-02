@@ -44,6 +44,12 @@ model Store {
   subscriptionStatus    String    @default("free") // free, active, past_due, canceled
   plan                  String    @default("trial")
   trialEndsAt           DateTime?
+  // Assinatura feita no app Android (Google Play Billing). O Stripe continua
+  // valendo no site; subscriptionSource diz qual dos dois liberou o premium.
+  subscriptionSource    String?   // stripe, play
+  subscriptionExpiresAt DateTime? // fim do período pago informado pelo Google
+  playPurchaseToken     String?
+  playProductId         String?
   categories    Category[]
   products      Product[]
   orders        Order[]
