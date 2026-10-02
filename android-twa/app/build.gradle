@@ -1,0 +1,67 @@
+plugins {
+    id "com.android.application"
+}
+
+// Tudo o que muda entre site e app fica aqui em cima.
+def twa = [
+    applicationId: "br.com.agentegestor.app",
+    hostName     : "agentegestor.com.br",
+    launchUrl    : "/dashboard",
+    name         : "AGTGestor",
+]
+
+// Senhas da chave de envio ficam fora do git, em keystore.properties.
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) keystorePropsFile.withInputStream { keystoreProps.load(it) }
+
+android {
+    namespace "br.com.agentegestor.app"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId twa.applicationId
+        minSdk 23
+        targetSdk 36
+        versionCode 1
+        versionName "1.0.0"
+
+        manifestPlaceholders = [
+            hostName    : twa.hostName,
+            defaultUrl  : "https://${twa.hostName}${twa.launchUrl}".toString(),
+            launcherName: twa.name,
+        ]
+        resValue "string", "app_name", twa.name
+        resValue "string", "asset_statements",
+            ('[{ \\"relation\\": [\\"delegate_permission/common.handle_all_urls\\"], ' +
+             '\\"target\\": {\\"namespace\\": \\"web\\", \\"site\\": \\"https://' + twa.hostName + '\\"}}]')
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps["storeFile"])
+                storePassword keystoreProps["storePassword"]
+                keyAlias keystoreProps["keyAlias"]
+                keyPassword keystoreProps["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePropsFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0"
+    implementation "com.google.androidbrowserhelper:billing:1.2.0"
+}
