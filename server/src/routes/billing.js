@@ -18,6 +18,14 @@ router.post('/checkout', auth, async (req, res) => {
     const store = await prisma.store.findUnique({ where: { userId: req.user.id } });
     if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
 
+    // Assinatura feita no app Android é gerenciada no Google Play, não no Stripe
+    if (store.subscriptionSource === 'play' && store.subscriptionStatus === 'active') {
+      return res.status(409).json({
+        error: 'Sua assinatura foi feita pelo Google Play. Gerencie ou cancele pelo app da Play Store.',
+        code: 'PLAY_SUBSCRIPTION',
+      });
+    }
+
     // Se já tiver uma assinatura ativa, redirecionar para o portal (Customer Portal)
     if (store.subscriptionStatus === 'active' && store.stripeCustomerId) {
       const portalSession = await stripe.billingPortal.sessions.create({
