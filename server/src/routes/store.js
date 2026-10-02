@@ -19,7 +19,7 @@ router.get('/', auth, async (req, res) => {
     }
     // Nunca enviar segredos/ids internos ao navegador (o painel não usa esses campos;
     // subscriptionStatus, plan e trialEndsAt continuam presentes)
-    const { botToken, stripeCustomerId, stripeSubscriptionId, ...safeStore } = store;
+    const { botToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...safeStore } = store;
     res.json(safeStore);
   } catch (error) {
     console.error(error);
