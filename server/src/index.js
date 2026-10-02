@@ -41,7 +41,10 @@ const professionalsRoutes = require('./routes/professionals');
 const blockedSlotsRoutes = require('./routes/blocked-slots');
 const clientsRoutes = require('./routes/clients');
 const availabilityRoutes = require('./routes/availability');
-const { restoreSessions } = require('./services/whatsapp');
+const { createPlayRoutes } = require('./routes/play');
+const { restoreSessions, stopSession } = require('./services/whatsapp');
+const { loadServiceAccount, createServiceAccountToken, createPlayBilling } = require('./services/playBilling');
+const prisma = require('./lib/prisma');
 const { apiLimiter } = require('./middleware/rateLimits');
 
 const app = express();
@@ -114,8 +117,40 @@ app.use('/api/blocked-slots', blockedSlotsRoutes);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/availability', availabilityRoutes);
 
+// Google Play Billing (app Android). Sem PLAY_SERVICE_ACCOUNT_JSON/_FILE o app
+// continua abrindo, mas a compra dentro dele responde 503.
+const playBilling = (() => {
+  try {
+    const serviceAccount = loadServiceAccount();
+    if (!serviceAccount) {
+      console.warn('⚠️  Conta de serviço do Google Play não configurada — compras no app Android desligadas.');
+      return null;
+    }
+    return createPlayBilling({
+      prisma,
+      getAccessToken: createServiceAccountToken({ serviceAccount }),
+      onExpired: (storeId) => stopSession(storeId).catch(() => {}),
+    });
+  } catch (err) {
+    console.error('[Play] Falha ao iniciar:', err.message);
+    return null;
+  }
+})();
+app.use('/api/play', createPlayRoutes(playBilling));
+
 // Serve React client build in production
 const clientPath = path.join(__dirname, '..', '..', 'client', 'dist');
+
+// Digital Asset Links: prova ao Android que o app br.com.agentegestor.app é dono
+// deste site (sem isso a TWA mostra a barra do navegador). express.static ignora
+// pastas com ponto, por isso a rota própria.
+app.get('/.well-known/assetlinks.json', (req, res, next) => {
+  res.type('application/json').sendFile(
+    path.join(clientPath, '.well-known', 'assetlinks.json'),
+    { dotfiles: 'allow' },
+    (err) => err && next()
+  );
+});
 app.use(express.static(clientPath));
 
 // SPA fallback — all non-API routes serve index.html
@@ -160,4 +195,10 @@ app.listen(PORT, () => {
   console.log(`🚀 AGTgestor API rodando em http://localhost:${PORT}`);
   // Restore WhatsApp sessions
   restoreSessions().catch(err => console.error('Error restoring sessions:', err));
+  // Renovação/cancelamento das assinaturas do Google Play, sem webhook
+  if (playBilling) {
+    const check = () => playBilling.refreshDue().catch((err) => console.error('[Play] refreshDue:', err.message));
+    check();
+    setInterval(check, 30 * 60 * 1000).unref();
+  }
 });
