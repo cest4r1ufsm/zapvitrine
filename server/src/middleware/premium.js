@@ -4,7 +4,11 @@ const prisma = require('../lib/prisma');
 // (trialEndsAt é opcional no schema — se não existir/for nulo, só assinatura ativa libera)
 function isEligible(store) {
   if (!store) return false;
-  if (store.subscriptionStatus === 'active') return true;
+  if (store.subscriptionStatus === 'active') {
+    // Google Play: vale até o fim do período pago; a renovação é conferida por refreshDue()
+    if (store.subscriptionSource !== 'play') return true;
+    if (store.subscriptionExpiresAt && new Date(store.subscriptionExpiresAt) > new Date()) return true;
+  }
   if (store.trialEndsAt && new Date(store.trialEndsAt) > new Date()) return true;
   return false;
 }
