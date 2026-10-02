@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "br.com.agentegestor.app",
+      "sha256_cert_fingerprints": [
+        "31:04:73:45:82:B7:6B:C4:DA:BB:AA:1D:D8:66:C8:36:AE:E5:E3:E9:12:BC:88:7B:FC:DC:2F:E5:DF:5D:2C:45"
+      ]
+    }
+  }
+]
