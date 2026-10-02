@@ -8,6 +8,7 @@ import PublicStore from './pages/PublicStore';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import { VerifyEmailPage, VerifyEmailPendingPage } from './pages/VerifyEmailPage';
+import LegalPage from './pages/LegalPage';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -35,6 +36,9 @@ function App() {
           <Route path="/verify-email-pending" element={<VerifyEmailPendingPage />} />
           <Route path="/dashboard/*" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/loja/:slug" element={<PublicStore />} />
+          <Route path="/privacidade" element={<LegalPage page="privacidade" />} />
+          <Route path="/termos" element={<LegalPage page="termos" />} />
+          <Route path="/excluir-conta" element={<LegalPage page="excluir-conta" />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
