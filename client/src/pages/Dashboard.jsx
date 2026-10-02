@@ -70,7 +70,7 @@ function Sidebar({ open, onClose }) {
           <span className="icon"><UIIcon name="blocked" /></span> Bloqueios
         </Link>
         <Link to="/dashboard/billing" className={`sidebar-link${isActive('/dashboard/billing') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="billing" /></span> Assinatura
+          <span className="icon"><UIIcon name="billing" /></span> Assinatura e conta
         </Link>
         {user?.role === 'admin' && (
           <Link to="/dashboard/admin" className={`sidebar-link${isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
