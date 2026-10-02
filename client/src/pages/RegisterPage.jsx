@@ -198,9 +198,9 @@ export default function RegisterPage() {
 
           <p className="auth-terms">
             Ao criar uma conta você concorda com nossos{' '}
-            <a href="#" onClick={(e) => e.preventDefault()}>Termos de Uso</a>{' '}
+            <Link to="/termos">Termos de Uso</Link>{' '}
             e{' '}
-            <a href="#" onClick={(e) => e.preventDefault()}>Política de Privacidade</a>.
+            <Link to="/privacidade">Política de Privacidade</Link>.
           </p>
         </div>
 
