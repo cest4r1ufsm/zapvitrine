@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "br.com.agentegestor.app",
       "sha256_cert_fingerprints": [
-        "31:04:73:45:82:B7:6B:C4:DA:BB:AA:1D:D8:66:C8:36:AE:E5:E3:E9:12:BC:88:7B:FC:DC:2F:E5:DF:5D:2C:45"
+        "31:04:73:45:82:B7:6B:C4:DA:BB:AA:1D:D8:66:C8:36:AE:E5:E3:E9:12:BC:88:7B:FC:DC:2F:E5:DF:5D:2C:45",
+        "A5:FB:07:CF:48:7C:A4:4C:BF:C6:97:60:A5:C1:CF:18:CC:59:FE:E4:13:5E:B7:06:9F:91:BF:57:92:D1:F4:A2"
       ]
     }
   }
