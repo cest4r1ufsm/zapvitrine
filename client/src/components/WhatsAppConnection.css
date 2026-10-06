@@ -14,6 +14,8 @@
 .wa-connection .wa-notice { margin-top: 12px; font-size: .9rem; }
 .wa-connection .wa-step { font-weight: 600; margin-bottom: 8px; }
 .wa-connected { color: var(--success); }
+.wa-connection .wa-pairing-phone { margin: 0 0 12px; text-align: center; font-size: .9rem; overflow-wrap: anywhere; }
+.wa-connection .wa-alternate { margin: 4px 0 12px; }
 .wa-pairing-code {
   display: block;
   padding: 16px 8px;
