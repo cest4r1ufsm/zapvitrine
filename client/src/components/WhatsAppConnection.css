@@ -1,0 +1,45 @@
+.wa-connection {
+  min-width: 0;
+  padding: clamp(16px, 3vw, 24px);
+  margin-bottom: 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.wa-connection h4 { margin: 0 0 12px; font-size: 1.08rem; }
+.wa-connection p { margin: 0 0 16px; color: var(--text-secondary); line-height: 1.6; }
+.wa-connection .btn { width: 100%; min-height: 44px; white-space: normal; text-align: center; }
+.wa-connection .wa-help, .wa-connection .wa-expiry { font-size: .85rem; margin-top: 10px; }
+.wa-connection .wa-notice { margin-top: 12px; font-size: .9rem; }
+.wa-connection .wa-step { font-weight: 600; margin-bottom: 8px; }
+.wa-connected { color: var(--success); }
+.wa-pairing-code {
+  display: block;
+  padding: 16px 8px;
+  margin: 0 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: clamp(1.3rem, 6vw, 2rem);
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-align: center;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.wa-steps { padding-left: 22px; margin: 20px 0 16px; color: var(--text-secondary); line-height: 1.6; }
+.wa-steps li + li { margin-top: 10px; }
+.wa-link-button { display: block; width: 100%; min-height: 44px; padding: 10px 0; margin-top: 8px; background: none; border: 0; color: var(--primary); text-decoration: underline; cursor: pointer; font: inherit; line-height: 1.5; }
+.wa-link-button:disabled { opacity: .6; cursor: wait; }
+.wa-connection :is(button, a, input):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.wa-connection input { font-size: 16px; }
+.wa-qr-frame { background: #fff; padding: 12px; width: min(100%, 264px); margin: 20px auto; border-radius: 8px; }
+.wa-qr-frame img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
+.wa-waiting { padding: 16px 0; text-align: center; }
+.wa-waiting .loading-spinner { margin: 0 auto 16px; }
+@media (max-width: 600px) {
+  .wa-connection { padding: 16px; }
+  .wa-connection .wa-steps { font-size: .95rem; }
+}
