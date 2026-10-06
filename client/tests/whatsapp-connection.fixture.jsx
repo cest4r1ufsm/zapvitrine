@@ -15,11 +15,21 @@ let polls = 0;
 let allowConnection = false;
 const requests = [];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Simplificação da regra do servidor: Brasil sem 55, DDD 31+ sem o 9, outra forma alternativa.
+function pairingNumbers({ phoneNumber = '', exact }) {
+  let digits = phoneNumber.replace(/D/g, '');
+  if (!phoneNumber.startsWith('+') && (digits.length === 10 || digits.length === 11)) digits = '55' + digits;
+  if (!digits.startsWith('55') || ![12, 13].includes(digits.length)) return { pairingPhone: digits, alternatePhoneNumber: null };
+  const long = digits.length === 13 ? digits : digits.slice(0, 4) + '9' + digits.slice(4);
+  const short = digits.length === 12 ? digits : digits.slice(0, 4) + digits.slice(5);
+  const pairingPhone = exact ? digits : Number(digits.slice(2, 4)) <= 28 ? long : short;
+  return { pairingPhone, alternatePhoneNumber: pairingPhone === long ? short : long };
+}
 const api = {
   connect: async options => {
     requests.push(options);
     if (scenario === 'request-error') throw new Error('Não foi possível iniciar. Tente novamente.');
-    pending = { status: 'connecting', method: options.method };
+    pending = { status: 'connecting', method: options.method, numbers: options.method === 'pairing' ? pairingNumbers(options) : {} };
     polls = 0;
     allowConnection = false;
     return pending;
@@ -30,7 +40,7 @@ const api = {
     polls++;
     if (allowConnection) return { status: 'connected', method: pending.method, phone: '5511999999999' };
     if (pending.method === 'qr') return { status: 'qr', method: 'qr', qr: '/tests/qr-fixture.svg' };
-    if (!pending.pairingCode) pending = { status: 'pairing', method: 'pairing', pairingCode: 'ABCD1234', pairingExpiresAt: new Date(Date.now() + (scenario === 'expired' ? 3500 : 180000)).toISOString() };
+    if (!pending.pairingCode) pending = { ...pending.numbers, status: 'pairing', method: 'pairing', pairingCode: 'ABCD1234', pairingExpiresAt: new Date(Date.now() + (scenario === 'expired' ? 3500 : 150000)).toISOString() };
     return pending;
   },
   disconnect: async () => { pending = { status: 'disconnected' }; },
@@ -38,7 +48,7 @@ const api = {
 
 function Fixture() {
   const [status, setStatus] = useState('disconnected');
-  const initial = scenario === 'resume' ? { status: 'pairing', method: 'pairing', pairingCode: 'ABCD1234', pairingExpiresAt: new Date(Date.now() + 180000).toISOString() } : { status: 'disconnected' };
+  const initial = scenario === 'resume' ? { status: 'pairing', method: 'pairing', pairingCode: 'ABCD1234', pairingPhone: '553199990000', alternatePhoneNumber: '5531999990000', pairingExpiresAt: new Date(Date.now() + 150000).toISOString() } : { status: 'disconnected' };
   return <main style={{ maxWidth: 1120, margin: '24px auto', padding: 16 }}>
     <h1 style={{ fontSize: 24, marginBottom: 12 }}>Conexão WhatsApp</h1>
     <p style={{ marginBottom: 16 }}>Prévia local com dados fictícios. Nenhuma conta real será vinculada.</p>
