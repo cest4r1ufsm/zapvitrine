@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
@@ -57,6 +57,8 @@ const { startSession, stopSession, getSessionStatus, sessions } = createWhatsApp
   onMessage: handleIncomingMessage,
   logger,
   getVersion: getWaVersion,
+  // Nome canônico: o WhatsApp recusa o código por número com nome de navegador próprio.
+  browser: Browsers.macOS('Chrome'),
 });
 
 // ===== MESSAGE HANDLING =====
