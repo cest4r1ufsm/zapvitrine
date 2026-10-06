@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { createWhatsAppSessions, normalizeConnectOptions, hasAuthenticatedCreds, PAIRING_TTL_MS } = require('../src/services/whatsappSessions');
+const { createWhatsAppSessions, normalizeConnectOptions, hasAuthenticatedCreds, PAIRING_TTL_MS, PAIRING_COOLDOWN_MS } = require('../src/services/whatsappSessions');
 
 const PHONE = '5511999990000'; // Valor sintético; nenhum teste acessa rede, arquivos ou contas reais.
 const pairing = { method: 'pairing', phoneNumber: PHONE };
@@ -11,7 +11,7 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function fixture({ registered = false, request, render } = {}) {
+function fixture({ registered = false, request, render, browser } = {}) {
   let clock = Date.UTC(2026, 9, 6);
   let timerId = 0;
   const timers = new Map();
@@ -20,6 +20,7 @@ function fixture({ registered = false, request, render } = {}) {
   const sockets = [], writes = [], removed = [], updates = [], reads = [];
   const store = { id: 1, eligible: true };
   const manager = createWhatsAppSessions({
+    ...(browser ? { browser } : {}),
     now: () => clock,
     schedule: (fn, delay) => { timers.set(++timerId, { fn, at: clock + delay }); return timerId; },
     cancel: (id) => timers.delete(id),
@@ -35,7 +36,7 @@ function fixture({ registered = false, request, render } = {}) {
     },
     removeAuth: async (id) => { removed.push(id); disk.delete(id); },
     renderQr: render || (async raw => 'data:image/png;base64,' + raw),
-    disconnectReason: { loggedOut: 401, restartRequired: 515 },
+    disconnectReason: { loggedOut: 401, restartRequired: 515, timedOut: 408 },
     logger: {}, onMessage: async () => {},
     makeSocket: (options) => {
       const socket = {
@@ -68,7 +69,7 @@ function fixture({ registered = false, request, render } = {}) {
 
 test('normalização valida antes de ler banco, disco ou abrir socket', async () => {
   const f = fixture();
-  for (const options of [null, [], { method: 'sms' }, { ...pairing, phoneNumber: 'abc5511999990000' }, { ...pairing, phoneNumber: '00115511999990000' }, { ...pairing, phoneNumber: 5511999990000 }, { ...pairing, phoneNumber: '123' }, { ...pairing, restart: 'yes' }]) {
+  for (const options of [null, [], { method: 'sms' }, { ...pairing, exact: 'yes' }, { ...pairing, phoneNumber: 'abc5511999990000' }, { ...pairing, phoneNumber: '00115511999990000' }, { ...pairing, phoneNumber: 5511999990000 }, { ...pairing, phoneNumber: '123' }, { ...pairing, restart: 'yes' }]) {
     assert.throws(() => f.startSession(1, options));
   }
   assert.equal(f.reads.length, 0);
@@ -103,7 +104,8 @@ test('pairing espera QR após handshake e pede um único código com múltiplos 
   assert.equal(status.pairingCode, 'ABCD1234');
   assert.equal(status.pairingExpiresAt, new Date(Date.UTC(2026, 9, 6) + PAIRING_TTL_MS).toISOString());
   assert.equal(status.phone, null);
-  assert.ok(!JSON.stringify(status).includes(PHONE));
+  assert.equal(status.pairingPhone, PHONE);
+  assert.equal(status.alternatePhoneNumber, '551199990000');
   assert.deepEqual(await f.startSession(1, pairing), status);
 });
 
@@ -298,4 +300,88 @@ test('restore distingue me provisório de identidade de conta autenticada', () =
   assert.equal(hasAuthenticatedCreds({ me: { id: PHONE }, pairingCode: 'ABCD1234', registered: false }), false);
   assert.equal(hasAuthenticatedCreds({ me: { id: PHONE }, account: {}, registered: false }), true);
   assert.equal(hasAuthenticatedCreds({ me: { id: PHONE }, registered: true }), true);
+});
+
+test('normaliza número brasileiro: sem 55, com/sem o 9 por DDD e forma alternativa', () => {
+  const n = (phoneNumber, extra = {}) => {
+    const { phoneNumber: number, alternatePhoneNumber: alt } = normalizeConnectOptions({ ...pairing, phoneNumber, ...extra });
+    return [number, alt];
+  };
+  // Sem código do país: lido como Brasil, não como EUA.
+  assert.deepEqual(n('11 99999-0000'), ['5511999990000', '551199990000']);
+  assert.deepEqual(n('(11) 99999-0000'), ['5511999990000', '551199990000']);
+  // DDD até 28 mantém o 9; a partir de 31 o padrão é sem o 9.
+  assert.deepEqual(n('+55 21 99999-0000'), ['5521999990000', '552199990000']);
+  assert.deepEqual(n('+55 11 9999-0000'), ['5511999990000', '551199990000']);
+  assert.deepEqual(n('31 99999-0000'), ['553199990000', '5531999990000']);
+  assert.deepEqual(n('+55 31 99999-0000'), ['553199990000', '5531999990000']);
+  assert.deepEqual(n('55 99999-0000'), ['555599990000', '5555999990000']);
+  assert.deepEqual(n('+55 55 9999-0000'), ['555599990000', '5555999990000']);
+  assert.deepEqual(n('85999990000'), ['558599990000', '5585999990000']);
+  // Fixo: sem forma alternativa.
+  assert.deepEqual(n('11 3333-4444'), ['551133334444', null]);
+  // Internacional com + não muda.
+  assert.deepEqual(n('+1 415 555 1234'), ['14155551234', null]);
+  assert.deepEqual(n('+44 7911 123456'), ['447911123456', null]);
+  assert.deepEqual(n('+351 912 345 678'), ['351912345678', null]);
+  // exact usa o número como veio e devolve a outra forma.
+  assert.deepEqual(n('5531999990000', { exact: true }), ['5531999990000', '553199990000']);
+  assert.deepEqual(n('551199990000', { exact: true }), ['551199990000', '5511999990000']);
+  assert.equal(normalizeConnectOptions({ method: 'qr' }).phoneNumber, null);
+});
+
+test('socket usa navegador canônico aceito pelo código por número', async () => {
+  const f = fixture();
+  await f.startSession(1, pairing);
+  const browser = f.sockets[0].options.browser;
+  assert.ok(['Mac OS', 'Ubuntu', 'Windows', 'Baileys'].includes(browser[0]), String(browser));
+  assert.notEqual(browser[0], 'AGTgestor');
+  assert.equal(browser[1], 'Chrome');
+  assert.equal(`${browser[1]} (${browser[0]})`, 'Chrome (Mac OS)');
+  const g = fixture({ browser: ['Ubuntu', 'Chrome', '22.04.4'] });
+  await g.startSession(1, pairing);
+  assert.deepEqual(g.sockets[0].options.browser, ['Ubuntu', 'Chrome', '22.04.4']);
+});
+
+test('tentar a outra forma do número ignora o cooldown uma vez e pede o código exato', async () => {
+  const f = fixture();
+  await f.startSession(1, { ...pairing, phoneNumber: '31 99999-0000' });
+  f.emit(0, { qr: 'raw' });
+  await settle();
+  assert.deepEqual(f.sockets[0].requests, ['553199990000']);
+  let status = f.getSessionStatus(1);
+  assert.equal(status.pairingPhone, '553199990000');
+  assert.equal(status.alternatePhoneNumber, '5531999990000');
+  // Outro número qualquer continua sujeito ao cooldown.
+  await assert.rejects(f.startSession(1, { ...pairing, phoneNumber: '5531888880000', exact: true, restart: true }), { code: 'CONNECTION_COOLDOWN' });
+  // Forma alternativa, exata: sem esperar e sem normalizar de volta.
+  await f.startSession(1, { ...pairing, phoneNumber: status.alternatePhoneNumber, exact: true, restart: true });
+  assert.equal(f.sockets.length, 2);
+  assert.equal(f.sockets[0].ended, 1);
+  f.emit(1, { qr: 'raw' });
+  await settle();
+  assert.deepEqual(f.sockets[1].requests, ['5531999990000']);
+  status = f.getSessionStatus(1);
+  assert.equal(status.pairingPhone, '5531999990000');
+  assert.equal(status.alternatePhoneNumber, '553199990000');
+  // Voltar logo em seguida respeita o cooldown (não alterna sem fim).
+  await assert.rejects(f.startSession(1, { ...pairing, phoneNumber: '553199990000', exact: true, restart: true }), { code: 'CONNECTION_COOLDOWN' });
+  await f.advance(PAIRING_COOLDOWN_MS);
+  await f.startSession(1, { ...pairing, phoneNumber: '553199990000', exact: true, restart: true });
+  assert.equal(f.sockets.length, 3);
+});
+
+test('fim das referências de QR durante o código vira código expirado', async () => {
+  assert.ok(PAIRING_TTL_MS <= 150000);
+  const f = fixture();
+  await f.startSession(1, pairing);
+  f.emit(0, { qr: 'raw' });
+  await settle();
+  f.emit(0, { connection: 'close', lastDisconnect: { error: { output: { statusCode: 408 } } } });
+  await settle();
+  const status = f.getSessionStatus(1);
+  assert.equal(status.errorCode, 'PAIRING_EXPIRED');
+  assert.equal(status.pairingCode, null);
+  assert.equal(status.pairingPhone, null);
+  assert.equal(f.sockets.length, 1);
 });
