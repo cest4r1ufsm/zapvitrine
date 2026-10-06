@@ -5,6 +5,31 @@ import './WhatsAppConnection.css';
 
 const WAITING = new Set(['connecting', 'reconnecting', 'qr', 'pairing']);
 const DISCONNECTED = { status: 'disconnected', qr: null, phone: null, error: null };
+const BR_DDDS = new Set([
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38,
+  41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+  71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+]);
+
+// Mesma regra do servidor (normalizeConnectOptions): sem "+", 10 ou 11 dígitos com DDD
+// válido é número brasileiro. Devolve os dígitos com código do país, ou null se inválido.
+// A escolha com/sem o 9 fica no servidor, que devolve as duas formas.
+function normalizePhoneInput(raw) {
+  const value = String(raw || '').trim();
+  if (!/^\+?[\d\s().-]+$/.test(value)) return null;
+  let digits = value.replace(/\D/g, '');
+  if (!value.startsWith('+') && BR_DDDS.has(Number(digits.slice(0, 2))) &&
+      (digits.length === 10 || (digits.length === 11 && digits[2] === '9'))) {
+    digits = '55' + digits;
+  }
+  return /^[1-9]\d{7,14}$/.test(digits) ? digits : null;
+}
+
+function formatPhone(digits) {
+  const value = String(digits || '');
+  const br = value.match(/^55(\d{2})(\d{4,5})(\d{4})$/);
+  return br ? `+55 ${br[1]} ${br[2]}-${br[3]}` : value ? '+' + value : '';
+}
 
 function prefersPhone() {
   return isAndroidApp() || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -23,6 +48,9 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
   const [qrError, setQrError] = useState(false);
   const [restart, setRestart] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Último número usado no código e a outra forma (com/sem o 9), para tentar de novo.
+  const [lastPairing, setLastPairing] = useState(() => initialStatus.pairingPhone
+    ? { phone: initialStatus.pairingPhone, alternate: initialStatus.alternatePhoneNumber || null } : null);
   const [now, setNow] = useState(Date.now);
   const current = useRef(initialStatus);
   const mounted = useRef(false);
@@ -37,6 +65,7 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
     const previous = current.current;
     if (next.qr !== previous.qr) setQrError(false);
     current.current = next;
+    if (next.pairingPhone) setLastPairing({ phone: next.pairingPhone, alternate: next.alternatePhoneNumber || null });
     setNow(Date.now());
     setStatus(next);
     onStatusChange?.(next, previous);
@@ -88,14 +117,19 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
     return () => clearInterval(timer);
   }, [status.status, status.pairingExpiresAt]);
 
-  const connect = async (event) => {
+  // `retry`: a outra forma do número (com/sem o 9), enviada exata, sem normalizar de novo.
+  const connect = async (event, retry = null) => {
     event?.preventDefault();
     if (busy) return;
-    const digits = phone.replace(/[\s()+.-]/g, '');
-    if (method === 'pairing' && !/^[1-9]\d{7,14}$/.test(digits)) {
-      setError('Informe o número com código do país e DDD. Exemplo: +55 11 99999-9999.');
+    const typed = phone.trim();
+    if (!retry && method === 'pairing' && !normalizePhoneInput(typed)) {
+      setError('Informe o número com DDD. Exemplo: 11 91234-5678.');
       return;
     }
+    // O "+" fica: sem ele, 10-11 dígitos com DDD são lidos como Brasil.
+    const options = retry ? { method: 'pairing', phoneNumber: retry, exact: true, restart: true }
+      : method === 'pairing' ? { method, phoneNumber: (typed.startsWith('+') ? '+' : '') + typed.replace(/\D/g, ''), restart }
+        : { method, restart };
     const generation = ++operation.current;
     setBusy(true);
     setError('');
@@ -103,7 +137,7 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
     setCopyMessage('');
     setQrError(false);
     try {
-      const next = await api.connect(method === 'pairing' ? { method, phoneNumber: digits, restart } : { method, restart });
+      const next = await api.connect(options);
       if (!mounted.current || generation !== operation.current) return;
       setNow(Date.now());
       setRestart(false);
@@ -149,6 +183,10 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
   const displayCode = code.match(/.{1,4}/g)?.join('-') || '';
   const hasError = status.status === 'error' || expired;
   const seconds = Number.isFinite(expiresAt) ? Math.max(0, Math.ceil((expiresAt - now) / 1000)) : null;
+  const alternate = method === 'pairing' && !editing && (pairing || hasError) ? lastPairing?.alternate : null;
+  const alternateButton = alternate ? <button type="button" className="btn btn-secondary wa-alternate" onClick={() => connect(null, alternate)} disabled={busy}>
+    {busy ? 'Gerando código...' : `O WhatsApp recusou? Tentar ${alternate.length > lastPairing.phone.length ? 'com' : 'sem'} o 9`}
+  </button> : null;
 
   const copyCode = async () => {
     try {
@@ -181,6 +219,7 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
         {pairing ? <>
           <p className="wa-step">Confirme a vinculação no WhatsApp</p>
           <output className="wa-pairing-code" aria-label="Código de vinculação">{displayCode}</output>
+          {status.pairingPhone && <p className="wa-pairing-phone">Código gerado para <strong>{formatPhone(status.pairingPhone)}</strong></p>}
           {seconds !== null && <p className="wa-expiry">Válido por até {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}. Se o WhatsApp recusar, gere outro.</p>}
           <button type="button" className="btn btn-primary" onClick={copyCode}>Copiar código</button>
           {copyMessage && <p role="status" className="wa-notice">{copyMessage}</p>}
@@ -193,6 +232,8 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
           <a className="btn btn-secondary" href="whatsapp://">Abrir WhatsApp</a>
           <p className="wa-help">Se o botão não abrir o aplicativo, abra o WhatsApp ou WhatsApp Business pelo ícone no celular.</p>
           <p className="wa-notice" role="status">Aguardando sua confirmação no WhatsApp...</p>
+          {alternateButton && <p className="wa-help">Alguns números estão no WhatsApp com o 9 e outros sem. Se o WhatsApp disser que não foi possível conectar, gere o código com a outra forma.</p>}
+          {alternateButton}
         </> : qr && !qrError ? <>
           <div className="wa-qr-frame"><img src={status.qr} alt="QR Code para vincular seu WhatsApp" onError={() => setQrError(true)} /></div>
           <ol className="wa-steps">
@@ -206,11 +247,12 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
           <p>{status.status === 'reconnecting' ? 'Restabelecendo a conexão...' : method === 'pairing' ? 'Preparando seu código...' : 'Preparando o QR Code...'}</p>
           <p className="wa-help">Aguarde alguns instantes. A tela será atualizada automaticamente.</p>
         </div> : <form onSubmit={connect}>
+          {hasError && alternateButton}
           {qrError && <p role="alert">Não foi possível exibir o QR Code. Você pode conectar por código.</p>}
           {method === 'pairing' && <div className="form-group">
-            <label htmlFor="wa-phone">WhatsApp com código do país e DDD</label>
-            <input id="wa-phone" className="form-input" type="tel" inputMode="tel" autoComplete="tel" placeholder="+55 11 99999-9999" value={phone} onChange={event => setPhone(event.target.value)} aria-describedby="wa-phone-help" disabled={busy} required />
-            <p id="wa-phone-help" className="wa-help">Use o número do WhatsApp que vai atender seus clientes. Para o Brasil, comece com +55. O código aparecerá aqui, não por SMS.</p>
+            <label htmlFor="wa-phone">WhatsApp com DDD</label>
+            <input id="wa-phone" className="form-input" type="tel" inputMode="tel" autoComplete="tel" placeholder="11 91234-5678" value={phone} onChange={event => setPhone(event.target.value)} aria-describedby="wa-phone-help" disabled={busy} required />
+            <p id="wa-phone-help" className="wa-help">Digite com DDD. Ex.: 11 91234-5678. O +55 é opcional; fora do Brasil, comece com + e o código do país. Use o WhatsApp que vai atender seus clientes. O código aparecerá aqui, não por SMS.</p>
           </div>}
           <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'Iniciando...' : method === 'pairing' ? hasError ? 'Gerar novo código' : 'Gerar código de conexão' : 'Gerar QR Code'}</button>
         </form>}
