@@ -10,6 +10,7 @@ import AgendaPage from './AgendaPage';
 import OnboardingModal, { useOnboarding, STORAGE_KEY as ONBOARDING_KEY } from './OnboardingModal';
 import PageGuide from '../components/PageGuide';
 import UIIcon from '../components/UIIcon';
+import WhatsAppConnection from '../components/WhatsAppConnection';
 import { btnGlass } from '../styles/buttons';
 import { panel } from '../styles/surfaces';
 
@@ -99,7 +100,7 @@ function OnboardingChecklist({ products, store, professionals }) {
     { done: !!(store?.schedulingConfig), label: 'Configurar horários de atendimento', path: '/dashboard/loja', desc: 'Defina os dias e horários que você trabalha' },
     { done: products.length > 0, label: 'Cadastrar pelo menos um serviço', path: '/dashboard/servicos', desc: 'Adicione seus serviços com preço e duração' },
     { done: professionals?.length > 0, label: 'Adicionar profissionais (opcional)', path: '/dashboard/profissionais', desc: 'Cadastre sua equipe para seleção no chatbot' },
-    { done: store?.botEnabled, label: 'Conectar o WhatsApp', path: '/dashboard/chatbot', desc: 'Escaneie o QR Code para ativar o chatbot' },
+    { done: store?.botEnabled, label: 'Conectar o WhatsApp', path: '/dashboard/chatbot', desc: 'Vincule por código no celular ou QR Code em outro aparelho' },
   ];
 
   const completed = steps.filter(s => s.done).length;
@@ -880,8 +881,6 @@ function ChatbotPage() {
   const [success, setSuccess] = useState('');
   const [products, setProducts] = useState([]);
   const [waStatus, setWaStatus] = useState({ status: 'disconnected', qr: null, phone: null, error: null });
-  const [connecting, setConnecting] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
     Promise.all([storeAPI.getChatbot(), productsAPI.list(), whatsappAPI.status()])
@@ -894,51 +893,14 @@ function ChatbotPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Poll WhatsApp status while connecting or waiting for QR scan
-  useEffect(() => {
-    const shouldPoll = waStatus.status === 'connecting' || waStatus.status === 'qr' || waStatus.status === 'reconnecting';
-    if (!shouldPoll) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await whatsappAPI.status();
-        setWaStatus(status);
-        if (status.status === 'connected' || status.status === 'disconnected' || status.status === 'error') {
-          clearInterval(interval);
-          setConnecting(false);
-        }
-      } catch (err) {
-        console.error('Poll error:', err);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [waStatus.status]);
-
-  const handleConnect = async () => {
-    setConnecting(true);
-    setError('');
-    try {
-      const result = await whatsappAPI.connect();
-      setWaStatus(result);
-    } catch (err) {
-      setError(err.message);
-      setConnecting(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!confirm('Desconectar o WhatsApp? O chatbot será desativado.')) return;
-    setDisconnecting(true);
-    setError('');
-    try {
-      await whatsappAPI.disconnect();
-      setWaStatus({ status: 'disconnected', qr: null, phone: null, error: null });
+  const handleWhatsAppStatus = useCallback((next, previous) => {
+    setWaStatus(next);
+    if (next.status === 'connected' && previous.status !== 'connected') {
+      setConfig(prev => ({ ...prev, botEnabled: true }));
+    } else if (next.status === 'disconnected') {
       setConfig(prev => ({ ...prev, botEnabled: false }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDisconnecting(false);
     }
-  };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -978,68 +940,7 @@ function ChatbotPage() {
         <div className="settings-section">
           <h3>Conexão com WhatsApp</h3>
 
-          {/* Status card */}
-          <div style={{ padding: '20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${isConnected ? 'var(--success)' : 'var(--border)'}`, marginBottom: '24px' }}>
-            {isConnected ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)' }} />
-                  <div>
-                    <div style={{ fontWeight: 700, color: 'var(--success)' }}>WhatsApp Conectado</div>
-                    {waStatus.phone && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>+{waStatus.phone}</div>}
-                  </div>
-                </div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  O chatbot está ativo e respondendo automaticamente seus clientes pelo WhatsApp.
-                </p>
-                <button className="btn btn-secondary" onClick={handleDisconnect} disabled={disconnecting} style={{ width: '100%' }}>
-                  {disconnecting ? 'Desconectando...' : 'Desconectar WhatsApp'}
-                </button>
-              </div>
-            ) : waStatus.status === 'qr' && waStatus.qr ? (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 600, marginBottom: '12px' }}>Escaneie o QR Code</div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  Abra o WhatsApp no seu celular → Menu → Dispositivos conectados → Conectar dispositivo
-                </p>
-                <img src={waStatus.qr} alt="QR Code WhatsApp" style={{ width: '220px', height: '220px', borderRadius: 'var(--radius-md)', border: '4px solid var(--border)' }} />
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px' }}>O QR Code expira em 60 segundos. Aguardando leitura...</p>
-              </div>
-            ) : waStatus.status === 'connecting' || waStatus.status === 'reconnecting' ? (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <div className="loading-spinner" style={{ margin: '0 auto 16px' }} />
-                <div style={{ fontWeight: 600 }}>Aguardando QR Code...</div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>Isso pode levar alguns segundos</p>
-              </div>
-            ) : waStatus.status === 'error' ? (
-              <div>
-                <div style={{ color: 'var(--error)', fontWeight: 600, marginBottom: '8px' }}>Erro de conexão</div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>{waStatus.error || 'Não foi possível conectar. Tente novamente.'}</p>
-                <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
-                  Tentar novamente
-                </button>
-              </div>
-            ) : (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--text-muted)' }} />
-                  <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>WhatsApp Desconectado</div>
-                </div>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  Conecte seu WhatsApp para ativar o chatbot. É rápido: basta escanear um QR Code com o celular.
-                </p>
-                <ol style={{ paddingLeft: '18px', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <li>Clique em <strong>"Conectar WhatsApp"</strong></li>
-                  <li>Abra o WhatsApp no seu celular</li>
-                  <li>Vá em <strong>Menu → Dispositivos conectados → Conectar dispositivo</strong></li>
-                  <li>Escaneie o QR Code que aparecerá aqui</li>
-                </ol>
-                <button className="btn btn-primary" onClick={handleConnect} disabled={connecting} style={{ width: '100%' }}>
-                  {connecting ? 'Iniciando...' : 'Conectar WhatsApp'}
-                </button>
-              </div>
-            )}
-          </div>
+          <WhatsAppConnection initialStatus={waStatus} onStatusChange={handleWhatsAppStatus} />
 
           {isConnected && (
             <>
