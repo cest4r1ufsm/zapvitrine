@@ -71,7 +71,7 @@ test('rota exige auth/premium, valida contrato, não cacheia códigos e limita p
   const pairing = await post({ method: 'pairing', phoneNumber: '+55 (11) 99999-0000', restart: true });
   assert.equal(pairing.status, 200);
   assert.equal(pairing.headers.get('Cache-Control'), 'no-store');
-  assert.deepEqual(calls[1], { id: 1, method: 'pairing', phoneNumber: '5511999990000', restart: true });
+  assert.deepEqual(calls[1], { id: 1, method: 'pairing', phoneNumber: '5511999990000', alternatePhoneNumber: '551199990000', exact: false, restart: true });
   const status = await fetch(base + '/status', { headers });
   assert.equal(status.headers.get('Cache-Control'), 'no-store');
   assert.equal((await status.json()).status, 'pairing');
@@ -106,4 +106,43 @@ test('rota devolve cooldown explícito e esconde erros internos de biblioteca', 
   const failed = await request();
   assert.equal(failed.status, 500);
   assert.deepEqual(await failed.json(), { error: 'Erro ao iniciar sessão WhatsApp', code: 'CONNECTION_FAILED' });
+});
+
+test('rota normaliza número brasileiro sem 55, aceita forma exata e devolve número do código', async (t) => {
+  const calls = [];
+  const app = express();
+  app.use(express.json());
+  app.use('/whatsapp', mockedRouter({
+    startSession: async (id, options) => {
+      const normalized = normalizeConnectOptions(options);
+      calls.push(normalized);
+      return { status: 'connecting', method: normalized.method };
+    },
+    getSessionStatus: () => ({ status: 'pairing', pairingCode: 'ABCD1234', pairingPhone: '553199990000', alternatePhoneNumber: '5531999990000' }),
+    stopSession: async () => {},
+  }));
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const base = `http://127.0.0.1:${server.address().port}/whatsapp`;
+  const headers = { Authorization: 'Bearer test', 'X-Test-Plan': 'active', 'Content-Type': 'application/json' };
+  const post = body => fetch(base + '/connect', { method: 'POST', headers, body: JSON.stringify(body) });
+
+  assert.equal((await post({ method: 'pairing', phoneNumber: '11 99999-0000' })).status, 200);
+  assert.equal(calls[0].phoneNumber, '5511999990000');
+  assert.equal((await post({ method: 'pairing', phoneNumber: '(31) 99999-0000' })).status, 200);
+  assert.equal(calls[1].phoneNumber, '553199990000');
+  assert.equal(calls[1].alternatePhoneNumber, '5531999990000');
+  assert.equal((await post({ method: 'pairing', phoneNumber: '5531999990000', exact: true, restart: true })).status, 200);
+  assert.equal(calls[2].phoneNumber, '5531999990000');
+  assert.equal(calls[2].exact, true);
+  assert.equal((await post({ method: 'pairing', phoneNumber: '+1 415 555 1234' })).status, 200);
+  assert.equal(calls[3].phoneNumber, '14155551234');
+  assert.equal(calls[3].alternatePhoneNumber, null);
+  const badExact = await post({ method: 'pairing', phoneNumber: '11 99999-0000', exact: 'sim' });
+  assert.equal(badExact.status, 400);
+  assert.equal((await badExact.json()).code, 'INVALID_CONNECTION_OPTIONS');
+  assert.equal(calls.length, 4);
+  const status = await (await fetch(base + '/status', { headers })).json();
+  assert.equal(status.pairingPhone, '553199990000');
+  assert.equal(status.alternatePhoneNumber, '5531999990000');
 });
