@@ -104,7 +104,7 @@ export const ordersAPI = {
 
 // WhatsApp
 export const whatsappAPI = {
-  connect: () => request('/whatsapp/connect', { method: 'POST' }),
+  connect: (options = {}) => request('/whatsapp/connect', { method: 'POST', body: JSON.stringify(options) }),
   status: () => request('/whatsapp/status'),
   disconnect: () => request('/whatsapp/disconnect', { method: 'POST' }),
 };
