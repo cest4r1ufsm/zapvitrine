@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
@@ -21,238 +21,43 @@ const {
 const pino = require('pino');
 const logger = pino({ level: 'silent' });
 
-// Store active sessions: { storeId: { socket, qr, status, retries } }
-const sessions = new Map();
+const { createWhatsAppSessions, hasAuthenticatedCreds, FALLBACK_WA_VERSION } = require('./whatsappSessions');
+
+// O WhatsApp recusa versões antigas do cliente web (erro 405). Busca a atual e guarda por 6 h.
+const VERSION_TTL_MS = 6 * 60 * 60 * 1000;
+let waVersion = { value: FALLBACK_WA_VERSION, fetchedAt: 0 };
+async function getWaVersion() {
+  if (Date.now() - waVersion.fetchedAt < VERSION_TTL_MS) return waVersion.value;
+  try {
+    const { version } = await fetchLatestBaileysVersion();
+    if (Array.isArray(version) && version.length === 3) waVersion = { value: version, fetchedAt: Date.now() };
+  } catch {
+    console.error('[Whatsapp] Não foi possível buscar a versão atual. Usando a versão reserva.');
+  }
+  return waVersion.value;
+}
 const sessionsDir = path.join(__dirname, '..', '..', 'sessions');
 
-// Ensure sessions directory exists
-if (!fs.existsSync(sessionsDir)) {
-  fs.mkdirSync(sessionsDir, { recursive: true });
-}
-
 function getSessionPath(storeId) {
+  if (!Number.isSafeInteger(storeId) || storeId < 1) throw new Error('Loja inválida');
   return path.join(sessionsDir, `store_${storeId}`);
 }
 
-async function startSession(storeId) {
-  // Defesa em profundidade: nunca conectar o bot para loja sem assinatura/trial válido
-  // (a rota /connect já valida via requirePremium; isto cobre restoreSessions e reconexões)
-  const storeCheck = await prisma.store.findUnique({ where: { id: storeId } });
-  if (!storeCheck || !isEligible(storeCheck)) {
-    const err = new Error('Assinatura necessária para conectar o bot');
-    err.code = 'SUBSCRIPTION_REQUIRED';
-    throw err;
-  }
-
-  // If session already active, return current state
-  if (sessions.has(storeId)) {
-    const existing = sessions.get(storeId);
-    if (existing.status === 'connected') {
-      return { status: 'connected', phone: existing.phone };
-    }
-    if (existing.status === 'qr' && existing.qrBase64) {
-      return { status: 'qr', qr: existing.qrBase64 };
-    }
-    // If already connecting, don't start another
-    if (existing.status === 'connecting') {
-      return { status: 'connecting' };
-    }
-  }
-
-  const sessionPath = getSessionPath(storeId);
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-
-  const sessionData = {
-    socket: null,
-    qr: null,
-    qrBase64: null,
-    status: 'connecting',
-    phone: null,
-    retries: sessions.has(storeId) ? (sessions.get(storeId).retries || 0) : 0,
-    error: null,
-  };
-  sessions.set(storeId, sessionData);
-
-  try {
-    const socket = makeWASocket({
-      auth: state,
-      printQRInTerminal: false,
-      logger,
-      version: [2, 3000, 1035920091],
-      browser: ['AGTgestor', 'Chrome', '22.0'],
-      connectTimeoutMs: 120000,
-      defaultQueryTimeoutMs: 60000,
-      markOnlineOnConnect: false,
-    });
-
-    sessionData.socket = socket;
-
-    // Handle connection updates
-    socket.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        // Generate QR code as base64 image
-        try {
-          const qrBase64 = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
-          sessionData.qr = qr;
-          sessionData.qrBase64 = qrBase64;
-          sessionData.status = 'qr';
-          sessionData.retries = 0; // Reset retries on successful QR
-          console.log(`📱 QR Code gerado para loja #${storeId}`);
-        } catch (err) {
-          console.error('Error generating QR:', err);
-        }
-      }
-
-      if (connection === 'open') {
-        sessionData.status = 'connected';
-        sessionData.qr = null;
-        sessionData.qrBase64 = null;
-        sessionData.retries = 0;
-
-        // Get connected phone number
-        const phoneNumber = socket.user?.id?.split(':')[0] || socket.user?.id?.split('@')[0] || '';
-        sessionData.phone = phoneNumber;
-
-        console.log(`✅ WhatsApp conectado para loja #${storeId} (${phoneNumber})`);
-
-        // Só habilita o bot se a loja continua elegível (pode ter cancelado entre o QR e a conexão)
-        const storeNow = await prisma.store.findUnique({ where: { id: storeId } });
-        if (storeNow && isEligible(storeNow)) {
-          await prisma.store.update({
-            where: { id: storeId },
-            data: { botEnabled: true },
-          });
-        } else {
-          console.log(`🚫 Loja #${storeId} sem assinatura elegível — encerrando sessão recém-conectada`);
-          stopSession(storeId).catch((err) => console.error('Erro ao encerrar sessão inelegível:', err.message));
-        }
-      }
-
-      if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const errorCode = lastDisconnect?.error?.code;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-        console.log(`❌ WhatsApp desconectado loja #${storeId} (code: ${statusCode}, error: ${errorCode})`);
-
-        // Check for network errors - don't retry
-        if (errorCode === 'ECONNREFUSED' || errorCode === 'ENOTFOUND' || errorCode === 'ENETUNREACH') {
-          console.log(`🚫 Erro de rede para loja #${storeId} - rede bloqueando WhatsApp`);
-          sessionData.status = 'error';
-          sessionData.error = 'Não foi possível conectar ao WhatsApp. Verifique se sua rede permite conexões ao WhatsApp (porta 443). Em redes corporativas ou restritas, o WhatsApp pode estar bloqueado.';
-          // Clean session files
-          if (fs.existsSync(sessionPath)) {
-            fs.rmSync(sessionPath, { recursive: true, force: true });
-          }
-          return;
-        }
-
-        if (shouldReconnect && sessionData.retries < 3) {
-          sessionData.retries++;
-          sessionData.status = 'reconnecting';
-          console.log(`🔄 Reconectando loja #${storeId} (tentativa ${sessionData.retries})`);
-          setTimeout(() => {
-            startSession(storeId).catch(err => {
-              console.error(`Reconnect failed for store #${storeId}:`, err.message);
-              // Marca a sessão como erro para o frontend parar o polling de "reconnecting"
-              const s = sessions.get(storeId);
-              if (s) {
-                s.status = 'error';
-                s.error = 'Não foi possível reconectar. Conecte novamente pelo painel.';
-              }
-            });
-          }, 5000);
-        } else {
-          sessionData.status = 'error';
-          sessionData.error = statusCode === DisconnectReason.loggedOut
-            ? 'WhatsApp foi deslogado. Escaneie o QR Code novamente.'
-            : 'Não foi possível conectar. Tente novamente.';
-          
-          if (statusCode === DisconnectReason.loggedOut) {
-            if (fs.existsSync(sessionPath)) {
-              fs.rmSync(sessionPath, { recursive: true, force: true });
-            }
-          }
-
-          // Update store in database
-          await prisma.store.update({
-            where: { id: storeId },
-            data: { botEnabled: false },
-          });
-        }
-      }
-    });
-
-    // Save credentials when updated
-    socket.ev.on('creds.update', saveCreds);
-
-    // Handle incoming messages
-    socket.ev.on('messages.upsert', async ({ messages }) => {
-      for (const msg of messages) {
-        if (msg.key.fromMe) continue; // Ignore own messages
-        if (!msg.message) continue;
-
-        const from = msg.key.remoteJid;
-        if (!from || from.endsWith('@g.us')) continue; // Skip group messages
-
-        const text = msg.message.conversation
-          || msg.message.extendedTextMessage?.text
-          || msg.message.buttonsResponseMessage?.selectedDisplayText
-          || msg.message.listResponseMessage?.title
-          || '';
-
-        if (!text.trim()) continue;
-
-        await handleIncomingMessage(storeId, socket, from, text.trim(), msg);
-      }
-    });
-
-    return { status: 'connecting' };
-  } catch (error) {
-    console.error(`Error starting session for store #${storeId}:`, error);
-    sessions.delete(storeId);
-    throw error;
-  }
-}
-
-async function stopSession(storeId) {
-  const session = sessions.get(storeId);
-  if (session?.socket) {
-    try {
-      await session.socket.logout();
-    } catch (err) {
-      console.error('Logout error ignored:', err);
-    }
-    session.socket = null;
-  }
-  sessions.delete(storeId);
-
-  // Clear session files
-  const sessionPath = getSessionPath(storeId);
-  if (fs.existsSync(sessionPath)) {
-    fs.rmSync(sessionPath, { recursive: true, force: true });
-  }
-
-  // Update store
-  await prisma.store.update({
-    where: { id: storeId },
-    data: { botEnabled: false },
-  });
-}
-
-function getSessionStatus(storeId) {
-  const session = sessions.get(storeId);
-  if (!session) return { status: 'disconnected' };
-
-  return {
-    status: session.status,
-    qr: session.qrBase64 || null,
-    phone: session.phone || null,
-    error: session.error || null,
-  };
-}
+const { startSession, stopSession, getSessionStatus, sessions } = createWhatsAppSessions({
+  prisma,
+  isEligible,
+  loadAuth: (storeId) => useMultiFileAuthState(getSessionPath(storeId)),
+  removeAuth: async (storeId) => {
+    const sessionPath = getSessionPath(storeId);
+    if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+  },
+  makeSocket: makeWASocket,
+  renderQr: (qr, options) => QRCode.toDataURL(qr, options),
+  disconnectReason: DisconnectReason,
+  onMessage: handleIncomingMessage,
+  logger,
+  getVersion: getWaVersion,
+});
 
 // ===== MESSAGE HANDLING =====
 
@@ -929,10 +734,10 @@ async function sendText(socket, to, text) {
 // Restore sessions on server startup (only restore fully authenticated sessions)
 async function restoreSessions() {
   if (!fs.existsSync(sessionsDir)) return;
-  const dirs = fs.readdirSync(sessionsDir).filter(d => d.startsWith('store_'));
+  const dirs = fs.readdirSync(sessionsDir).filter(d => /^store_[1-9]\d*$/.test(d));
   for (const dir of dirs) {
     const storeId = parseInt(dir.replace('store_', ''));
-    if (isNaN(storeId)) continue;
+    if (!Number.isSafeInteger(storeId)) continue;
 
     // Only restore if creds.json exists (means QR was scanned before)
     const credsPath = path.join(sessionsDir, dir, 'creds.json');
@@ -946,7 +751,7 @@ async function restoreSessions() {
     // Check if creds have a registered flag (user completed pairing)
     try {
       const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-      if (!creds.me?.id) {
+      if (!hasAuthenticatedCreds(creds)) {
         console.log(`⏭️ Sessão sem autenticação completa para loja #${storeId}`);
         fs.rmSync(path.join(sessionsDir, dir), { recursive: true, force: true });
         continue;
@@ -976,14 +781,14 @@ async function sendMessageToCustomer(storeId, phone, text) {
   try {
     const session = sessions.get(storeId);
     if (!session || session.status !== 'connected' || !session.socket) {
-      console.log(`[Whatsapp] Não foi possível enviar mensagem para ${phone}: loja #${storeId} não conectada.`);
+      console.log(`[Whatsapp] Loja #${storeId} não conectada para envio de mensagem.`);
       return false;
     }
     const to = phone.includes('@s.whatsapp.net') ? phone : `${phone}@s.whatsapp.net`;
     await sendText(session.socket, to, text);
     return true;
   } catch (error) {
-    console.error(`[Whatsapp] Erro ao enviar mensagem para ${phone} (loja ${storeId}):`, error.message);
+    console.error(`[Whatsapp] Erro ao enviar mensagem (loja ${storeId}).`);
     return false;
   }
 }
