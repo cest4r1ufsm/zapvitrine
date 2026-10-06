@@ -1,12 +1,54 @@
 // Lifecycle separado do bot para testar pareamento sem rede, contas ou credenciais reais.
-const PAIRING_TTL_MS = 3 * 60 * 1000; // Prazo de exibição do app, não garantia de validade no WhatsApp.
+// O Baileys fecha o socket quando acabam as referências de QR (~160 s após o primeiro QR).
+// O prazo exibido termina antes disso para não mostrar um código que já morreu.
+const PAIRING_TTL_MS = 150 * 1000; // Prazo de exibição do app, não garantia de validade no WhatsApp.
 const CONNECTION_TIMEOUT_MS = 120000;
 const RECONNECT_DELAY_MS = 5000;
+const PAIRING_COOLDOWN_MS = 15000;
 // Versão antiga é recusada pelo WhatsApp (405). O serviço real busca a mais nova.
 const FALLBACK_WA_VERSION = [2, 3000, 1043857760];
+// O pedido de código envia `companion_platform_display` = "<browser[1]> (<browser[0]>)".
+// O WhatsApp recusa nomes fora dos canônicos (ex.: "Chrome (AGTgestor)") e o celular mostra
+// "Não foi possível conectar o aparelho". Mesmo valor de Browsers.macOS('Chrome') do Baileys.
+const DEFAULT_BROWSER = Object.freeze(['Mac OS', 'Chrome', '14.4.1']);
+
+// DDDs brasileiros válidos.
+const BR_DDDS = new Set([
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38,
+  41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+  71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+]);
 
 function requestError(message, code) {
   return Object.assign(new Error(message), { code, status: 400 });
+}
+
+// O código só funciona com o número exato da conta no WhatsApp. No Brasil, contas de
+// DDD 31 em diante costumam estar registradas sem o 9 extra (12 dígitos); DDD 11 a 28
+// costumam ter o 9 (13 dígitos). Devolve a forma padrão e a outra forma (com/sem o 9).
+// `exact` usa o número como veio (tentativa com a forma alternativa).
+function normalizePhone(raw, exact = false) {
+  const plus = raw.trim().startsWith('+');
+  let digits = raw.replace(/\D/g, '');
+  // Sem "+": 10 ou 11 dígitos com DDD válido é número brasileiro digitado sem o 55.
+  if (!plus && BR_DDDS.has(Number(digits.slice(0, 2))) &&
+      (digits.length === 10 || (digits.length === 11 && digits[2] === '9'))) {
+    digits = '55' + digits;
+  }
+  if (!/^[1-9]\d{7,14}$/.test(digits)) return null;
+  let alternate = null;
+  const ddd = Number(digits.slice(2, 4));
+  if (digits.startsWith('55') && BR_DDDS.has(ddd)) {
+    const withNine = digits.length === 13 && digits[4] === '9' && /[6-9]/.test(digits[5]);
+    const withoutNine = digits.length === 12 && /[6-9]/.test(digits[4]);
+    if (withNine || withoutNine) {
+      const long = withNine ? digits : digits.slice(0, 4) + '9' + digits.slice(4);
+      const short = withNine ? digits.slice(0, 4) + digits.slice(5) : digits;
+      if (!exact) digits = ddd <= 28 ? long : short;
+      alternate = digits === long ? short : long;
+    }
+  }
+  return { phoneNumber: digits, alternatePhoneNumber: alternate };
 }
 
 function normalizeConnectOptions(options = {}) {
@@ -17,24 +59,27 @@ function normalizeConnectOptions(options = {}) {
   if (!['qr', 'pairing'].includes(method)) {
     throw requestError('Escolha conectar por código ou por QR Code.', 'INVALID_CONNECTION_METHOD');
   }
-  if (options.restart !== undefined && typeof options.restart !== 'boolean') {
-    throw requestError('Informe uma opção de reinício válida.', 'INVALID_CONNECTION_OPTIONS');
+  for (const key of ['restart', 'exact']) {
+    if (options[key] !== undefined && typeof options[key] !== 'boolean') {
+      throw requestError('Informe uma opção de conexão válida.', 'INVALID_CONNECTION_OPTIONS');
+    }
   }
   const restart = options.restart === true;
-  if (method === 'qr') return { method, phoneNumber: null, restart };
+  if (method === 'qr') return { method, phoneNumber: null, alternatePhoneNumber: null, exact: false, restart };
   if (typeof options.phoneNumber !== 'string' || !/^\+?[\d\s().-]+$/.test(options.phoneNumber.trim())) {
-    throw requestError('Informe o WhatsApp com código do país e DDD, por exemplo +55 11 99999-9999.', 'INVALID_PHONE_NUMBER');
+    throw requestError('Informe o WhatsApp com DDD, por exemplo 11 91234-5678.', 'INVALID_PHONE_NUMBER');
   }
-  const phoneNumber = options.phoneNumber.replace(/\D/g, '');
-  if (!/^[1-9]\d{7,14}$/.test(phoneNumber)) {
-    throw requestError('Informe um número válido com código do país e DDD.', 'INVALID_PHONE_NUMBER');
+  const exact = options.exact === true;
+  const phone = normalizePhone(options.phoneNumber, exact);
+  if (!phone) {
+    throw requestError('Informe um número válido com DDD, por exemplo 11 91234-5678.', 'INVALID_PHONE_NUMBER');
   }
-  return { method, phoneNumber, restart };
+  return { method, ...phone, exact, restart };
 }
 
-// Baileys 6.7.16 preenche `me` ANTES de concluir requestPairingCode.
-// O login web concluído tem a identidade assinada `account`; registered é usado
-// por outras variantes do protocolo e não é definido pelo login web nessa versão.
+// Baileys 6.7.16 preenche `me` ANTES de concluir requestPairingCode (com registered=false).
+// Login concluído: o QR grava a identidade assinada `account`; o código por número também
+// grava `account` e, no companion_finish, define `creds.registered = true`.
 function hasAuthenticatedCreds(creds) {
   return !!(creds?.me?.id && (creds.account || creds.registered === true));
 }
@@ -42,6 +87,7 @@ function hasAuthenticatedCreds(creds) {
 function createWhatsAppSessions({
   prisma, isEligible, loadAuth, removeAuth, makeSocket, renderQr, disconnectReason,
   onMessage, logger, getVersion = async () => FALLBACK_WA_VERSION, now = Date.now, schedule = setTimeout, cancel = clearTimeout,
+  browser = DEFAULT_BROWSER,
 }) {
   const sessions = new Map();
   const operations = new Map();
@@ -100,7 +146,7 @@ function createWhatsAppSessions({
 
   function getSessionStatus(storeId) {
     const session = sessions.get(storeId);
-    if (!session) return { status: 'disconnected', method: null, qr: null, pairingCode: null, pairingExpiresAt: null, phone: null, error: null, errorCode: null };
+    if (!session) return { status: 'disconnected', method: null, qr: null, pairingCode: null, pairingExpiresAt: null, pairingPhone: null, alternatePhoneNumber: null, phone: null, error: null, errorCode: null };
     if (session.pairingExpiresAt && now() >= session.pairingExpiresAt) {
       fail(session, 'PAIRING_EXPIRED', 'O código expirou no aplicativo. Gere um novo código para tentar novamente.');
     }
@@ -110,6 +156,9 @@ function createWhatsAppSessions({
       qr: session.qrBase64 || null,
       pairingCode: session.pairingCode || null,
       pairingExpiresAt: session.pairingExpiresAt ? new Date(session.pairingExpiresAt).toISOString() : null,
+      // Número para o qual o código foi gerado e a outra forma (com/sem o 9), só com código ativo.
+      pairingPhone: session.pairingCode ? session.phoneNumber : null,
+      alternatePhoneNumber: session.pairingCode ? (session.alternatePhoneNumber || null) : null,
       phone: session.status === 'connected' ? (session.phone || null) : null,
       error: session.error || null,
       errorCode: session.errorCode || null,
@@ -165,7 +214,12 @@ function createWhatsAppSessions({
            (!options.restart && existing.method === options.method && existing.phoneNumber === options.phoneNumber))) {
         return getSessionStatus(storeId);
       }
-      if (options.method === 'pairing' && now() - existing.createdAt < 15000) {
+      // Trocar para a outra forma do mesmo número (com/sem o 9) logo após o WhatsApp
+      // recusar o código não espera o cooldown; só uma vez seguida, para não alternar sem fim.
+      const alternateRetry = options.method === 'pairing' && options.exact && existing.method === 'pairing' &&
+        !existing.alternateRetry && !!existing.alternatePhoneNumber && options.phoneNumber === existing.alternatePhoneNumber;
+      if (alternateRetry) options = { ...options, alternateRetry: true };
+      else if (options.method === 'pairing' && now() - existing.createdAt < PAIRING_COOLDOWN_MS) {
         throw Object.assign(new Error('Aguarde 15 segundos antes de gerar outro código.'), { code: 'CONNECTION_COOLDOWN', status: 429 });
       }
     }
@@ -196,7 +250,7 @@ function createWhatsAppSessions({
       if (!isCurrent(session)) return getSessionStatus(storeId);
       const socket = makeSocket({
         auth: auth.state, printQRInTerminal: false, logger,
-        version, browser: ['AGTgestor', 'Chrome', '22.0'],
+        version, browser: [...browser],
         connectTimeoutMs: CONNECTION_TIMEOUT_MS, defaultQueryTimeoutMs: 60000, markOnlineOnConnect: false,
       });
       session.socket = socket;
@@ -237,6 +291,7 @@ function createWhatsAppSessions({
           return;
         }
         if (update.connection === 'close') {
+          const hadPairingCode = !!session.pairingCode;
           clearSecrets(session);
           clearTimer(session, 'connectionTimer');
           session.closed = true;
@@ -255,6 +310,11 @@ function createWhatsAppSessions({
           // Nunca gerar outro código silenciosamente. Após pair-success/restartRequired
           // as credenciais autenticadas são reutilizadas e não pedimos novo pareamento.
           if (session.pairingRequested && !session.authenticated && !hasAuthenticatedCreds(session.state.creds)) {
+            // Fim das referências de QR (timedOut): o código deixou de valer no WhatsApp.
+            if (hadPairingCode && statusCode === disconnectReason.timedOut) {
+              fail(session, 'PAIRING_EXPIRED', 'O código expirou. Gere um novo código para tentar novamente.');
+              return;
+            }
             fail(session, 'PAIRING_INTERRUPTED', 'A conexão foi interrompida. Gere um novo código para tentar novamente.');
             return;
           }
@@ -269,7 +329,10 @@ function createWhatsAppSessions({
             if (!isCurrent(session)) return;
             serialize(storeId, async () => {
               if (!isCurrent(session)) return;
-              try { await connectLocked(storeId, { method: session.method, phoneNumber: session.phoneNumber }, session); }
+              try { await connectLocked(storeId, {
+                method: session.method, phoneNumber: session.phoneNumber,
+                alternatePhoneNumber: session.alternatePhoneNumber, exact: session.exact,
+              }, session); }
               catch (error) {
                 const current = sessions.get(storeId);
                 if (current) fail(current, error.code === 'SUBSCRIPTION_REQUIRED' ? error.code : 'CONNECTION_FAILED',
@@ -354,4 +417,7 @@ function createWhatsAppSessions({
   return { startSession, stopSession, getSessionStatus, sessions };
 }
 
-module.exports = { createWhatsAppSessions, normalizeConnectOptions, hasAuthenticatedCreds, PAIRING_TTL_MS, FALLBACK_WA_VERSION };
+module.exports = {
+  createWhatsAppSessions, normalizeConnectOptions, hasAuthenticatedCreds,
+  PAIRING_TTL_MS, PAIRING_COOLDOWN_MS, FALLBACK_WA_VERSION, DEFAULT_BROWSER,
+};
