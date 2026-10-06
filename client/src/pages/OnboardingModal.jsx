@@ -46,7 +46,7 @@ const STEPS = [
   {
     icon: 'bot',
     title: 'Conecte o WhatsApp',
-    description: 'Em "Chatbot", conecte seu WhatsApp Business escaneando o QR Code. A partir daí, qualquer cliente que mandar mensagem no seu número vai ser atendido automaticamente pelo bot, que vai oferecer os horários disponíveis.',
+    description: 'Em "Chatbot", informe seu número e gere um código para confirmar no próprio WhatsApp. Se estiver no computador, você também pode usar o QR Code. Depois de conectar, o bot oferece seus serviços e horários disponíveis.',
     tip: 'O chatbot funciona 24h. Se um cliente mandar mensagem durante a madrugada, o sistema responde e agenda; você vê tudo na Agenda quando acordar.',
     action: { label: 'Ir para Chatbot', path: '/dashboard/chatbot' },
   },
