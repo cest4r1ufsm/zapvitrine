@@ -10,6 +10,8 @@ const SUITES = [
   ['Regressão, isolamento e concorrência', 'regression.test.js'],
   ['Bot WhatsApp Cloud API (E2E)', 'bot.test.js'],
   ['Bot Baileys / QR code (E2E)', 'bot-baileys.test.js'],
+  ['Conexão WhatsApp: QR e código (unidade)', 'whatsapp-sessions.test.js'],
+  ['Rotas de conexão WhatsApp (HTTP isolado)', 'whatsapp-routes.test.js'],
   ['Registro automático de clientes', 'clients.test.js'],
   ['Duração personalizada', 'duration-override.test.js'],
   ['Google Play Billing e exclusão de conta', 'play.test.js'],
