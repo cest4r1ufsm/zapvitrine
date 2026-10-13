@@ -29,7 +29,8 @@ let waVersion = { value: FALLBACK_WA_VERSION, fetchedAt: 0 };
 async function getWaVersion() {
   if (Date.now() - waVersion.fetchedAt < VERSION_TTL_MS) return waVersion.value;
   try {
-    const { version } = await fetchLatestBaileysVersion();
+    const { version, isLatest, error } = await fetchLatestBaileysVersion();
+    if (error || isLatest === false) throw new Error('Consulta da versão indisponível');
     if (Array.isArray(version) && version.length === 3) waVersion = { value: version, fetchedAt: Date.now() };
   } catch {
     console.error('[Whatsapp] Não foi possível buscar a versão atual. Usando a versão reserva.');
@@ -43,7 +44,7 @@ function getSessionPath(storeId) {
   return path.join(sessionsDir, `store_${storeId}`);
 }
 
-const { startSession, stopSession, getSessionStatus, sessions } = createWhatsAppSessions({
+const { startSession, stopSession: stopSessionInternal, getSessionStatus, sessions } = createWhatsAppSessions({
   prisma,
   isEligible,
   loadAuth: (storeId) => useMultiFileAuthState(getSessionPath(storeId)),
@@ -61,12 +62,47 @@ const { startSession, stopSession, getSessionStatus, sessions } = createWhatsApp
   browser: Browsers.macOS('Chrome'),
 });
 
+async function clearConversationState(storeId) {
+  conversationEpochs.set(storeId, (conversationEpochs.get(storeId) || 0) + 1);
+  for (const key of conversations.keys()) {
+    if (key.startsWith(`${storeId}:`)) conversations.delete(key);
+  }
+  await prisma.whatsAppConversation.deleteMany({ where: { id: { startsWith: `baileys:${storeId}:` } } });
+}
+
+async function stopSession(storeId) {
+  const clearing = clearConversationState(storeId);
+  const stopping = stopSessionInternal(storeId);
+  await Promise.all([clearing, stopping]);
+}
+
 // ===== MESSAGE HANDLING =====
 
 // Conversation state for order flow
+const CONVERSATION_TTL_MS = 30 * 60 * 1000;
+const conversationEpochs = new Map();
 const conversations = new Map();
+const nativeConversationSet = conversations.set.bind(conversations);
+conversations.set = (key, value) => nativeConversationSet(key, { ...value, lastActivity: Date.now() });
+
+async function resolveCustomerIdentity(socket, from, msg) {
+  const pn = (jid) => typeof jid === 'string' && /^\d+(?::\d+)?@s\.whatsapp\.net$/.test(jid)
+    ? jid.split('@')[0].split(':')[0] : null;
+  if (pn(from)) return pn(from);
+  if (!/^\d+@lid$/.test(from || '')) throw new Error('Identidade de contato inválida');
+  if (pn(msg?.key?.remoteJidAlt)) return pn(msg.key.remoteJidAlt);
+  try {
+    const mapped = await socket.signalRepository?.lidMapping?.getPNForLID?.(from);
+    if (pn(mapped)) return pn(mapped);
+  } catch { /* Preserve LID when mapping is unavailable. */ }
+  return from;
+}
 
 async function handleIncomingMessage(storeId, socket, from, text, msg) {
+  const convoKey = `${storeId}:${from}`;
+  const persistedKey = `baileys:${convoKey}`;
+  const epoch = conversationEpochs.get(storeId) || 0;
+  let persistState = false;
   try {
     const store = await prisma.store.findUnique({
       where: { id: storeId },
@@ -80,11 +116,27 @@ async function handleIncomingMessage(storeId, socket, from, text, msg) {
       },
     });
 
-    if (!store) return;
+    if (!store || store.officialPhoneId || !store.botEnabled || !isEligible(store)) return;
 
     const msgLower = text.toLowerCase();
-    const convoKey = `${storeId}:${from}`;
-    const convo = conversations.get(convoKey);
+    const persisted = await prisma.whatsAppConversation.findUnique({ where: { id: persistedKey } });
+    const cutoff = new Date(Date.now() - CONVERSATION_TTL_MS);
+    await prisma.whatsAppConversation.deleteMany({ where: { id: { startsWith: 'baileys:' }, updatedAt: { lt: cutoff } } });
+    if (epoch !== (conversationEpochs.get(storeId) || 0)) return;
+    if (!conversations.has(convoKey) && persisted && new Date(persisted.updatedAt) > cutoff) {
+      try {
+        const recovered = JSON.parse(persisted.state);
+        if (recovered && typeof recovered.step === 'string') nativeConversationSet(convoKey, recovered);
+      } catch { /* A corrupt conversation starts again safely. */ }
+    }
+    persistState = true;
+    let convo = conversations.get(convoKey);
+    const timestamp = Date.now();
+    for (const [key, value] of conversations) {
+      if (timestamp - (value.lastActivity || 0) > CONVERSATION_TTL_MS) conversations.delete(key);
+    }
+    convo = conversations.get(convoKey);
+    if (convo) convo.lastActivity = timestamp;
 
     // B18 — primeira mensagem de uma conversa fora do horário de funcionamento:
     // apenas AVISA (a loja pode receber agendamento para os próximos dias)
@@ -111,13 +163,26 @@ async function handleIncomingMessage(storeId, socket, from, text, msg) {
     } else if (msgLower === '2' || msgLower === 'pedido' || msgLower === 'pedir') {
       await sendOrderMenu(store, socket, from);
     } else if (msgLower === '3' || msgLower === 'meus pedidos') {
-      await sendMyOrders(store, socket, from);
+      await sendMyOrders(store, socket, from, msg);
     } else {
       // Default greeting
       await sendText(socket, from, buildGreeting(store));
     }
   } catch (error) {
-    console.error('Error handling message:', error);
+    console.error('Falha ao processar conversa do chatbot.');
+  } finally {
+    if (persistState && epoch === (conversationEpochs.get(storeId) || 0)) {
+      try {
+        const state = conversations.get(convoKey);
+        if (state) {
+          await prisma.whatsAppConversation.upsert({
+            where: { id: persistedKey },
+            create: { id: persistedKey, state: JSON.stringify(state) },
+            update: { state: JSON.stringify(state) },
+          });
+        } else await prisma.whatsAppConversation.deleteMany({ where: { id: persistedKey } });
+      } catch { console.error('Falha ao salvar conversa do chatbot.'); }
+    }
   }
 }
 
@@ -488,11 +553,13 @@ async function handleOrderFlow(store, socket, from, convoKey, convo, text, msg) 
         convo.data.type = 'schedule';
         conversations.set(convoKey, convo);
         await startScheduleFlow(store, socket, from, convoKey, convo);
-      } else {
+      } else if (text === '2' || text.toLowerCase().includes('entrega')) {
         convo.step = 'ask_address';
         convo.data.type = 'delivery';
         conversations.set(convoKey, convo);
         await sendText(socket, from, `📍 *Qual é o endereço de entrega?*\n\nEnvie o endereço completo (rua, número, bairro).`);
+      } else {
+        await sendText(socket, from, 'Escolha 1 para agendar um horário ou 2 para entrega.');
       }
       break;
     }
@@ -615,13 +682,13 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
   // Revalida a disponibilidade ANTES de gravar — entre a escolha e a confirmação
   // (o cliente digita as observações) outra pessoa pode ter pego o horário
   try {
-    let customerPhone = from.split('@')[0];
-
-    // Fallback pra pegar o número real caso seja um @lid (ocorre quando a pessoa testa o bot mandando mensagem para si mesma)
-    if (msg?.key?.participant) {
-      customerPhone = msg.key.participant.split('@')[0];
-    } else if (from.includes('@lid') && socket.user?.id) {
-      customerPhone = socket.user.id.split(':')[0].split('@')[0];
+    const customerPhone = await resolveCustomerIdentity(socket, from, msg);
+    const currentProduct = store.products.find(product => product.id === convo.productId);
+    if (!currentProduct || currentProduct.price !== convo.productPrice) {
+      conversations.delete(convoKey);
+      await sendText(socket, from, 'O produto ou valor mudou durante o pedido. Confira o catálogo atualizado antes de continuar.');
+      await sendOrderMenu(store, socket, from);
+      return;
     }
 
     const scheduledLabel = isSchedule ? `${formatDateBR(convo.data.date)} ${convo.data.time}` : null;
@@ -686,18 +753,18 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
     await sendText(socket, from, resposta);
   } catch (error) {
     console.error('Erro ao salvar pedido:', error);
-    require('fs').writeFileSync('erro_pedido.log', error.stack || error.message);
+
     conversations.delete(convoKey);
     await sendText(socket, from, 'Desculpe, houve um erro ao registrar seu pedido. Envie *menu* para tentar novamente.');
   }
 }
 
-async function sendMyOrders(store, socket, from) {
+async function sendMyOrders(store, socket, from, incomingMessage) {
   try {
-    const customerPhone = from.replace('@s.whatsapp.net', '');
+    const customerPhone = await resolveCustomerIdentity(socket, from, incomingMessage);
 
     const orders = await prisma.order.findMany({
-      where: { storeId: store.id, customerPhone },
+      where: { storeId: store.id, customerPhone: { in: [...new Set([customerPhone, from, from.split('@')[0]])] } },
       include: { product: true },
       orderBy: { createdAt: 'desc' },
       take: 5,
@@ -728,8 +795,10 @@ async function sendMyOrders(store, socket, from) {
 async function sendText(socket, to, text) {
   try {
     await socket.sendMessage(to, { text });
+    return true;
   } catch (error) {
-    console.error('Error sending message:', error.message);
+    console.error('Falha ao enviar mensagem do chatbot.');
+    return false;
   }
 }
 
@@ -765,14 +834,14 @@ async function restoreSessions() {
 
     // Não restaurar sessões de lojas sem assinatura/trial válido
     const store = await prisma.store.findUnique({ where: { id: storeId } });
-    if (!store || !isEligible(store)) {
+    if (!store || store.officialPhoneId || !isEligible(store)) {
       console.log(`⏭️ Loja #${storeId} sem assinatura elegível — sessão não restaurada`);
       continue;
     }
 
     console.log(`🔄 Restaurando sessão WhatsApp para loja #${storeId}`);
     try {
-      await startSession(storeId);
+      await startSession(storeId, { resume: true });
     } catch (err) {
       console.error(`Failed to restore session for store #${storeId}:`, err.message);
     }
@@ -781,14 +850,17 @@ async function restoreSessions() {
 
 async function sendMessageToCustomer(storeId, phone, text) {
   try {
+    const store = await prisma.store.findUnique({ where: { id: storeId } });
+    if (!store || store.officialPhoneId || !isEligible(store)) return false;
     const session = sessions.get(storeId);
     if (!session || session.status !== 'connected' || !session.socket) {
       console.log(`[Whatsapp] Loja #${storeId} não conectada para envio de mensagem.`);
       return false;
     }
-    const to = phone.includes('@s.whatsapp.net') ? phone : `${phone}@s.whatsapp.net`;
-    await sendText(session.socket, to, text);
-    return true;
+    if (typeof phone !== 'string') return false;
+    const to = /^\d+@(s\.whatsapp\.net|lid)$/.test(phone) ? phone : /^\d{8,15}$/.test(phone) ? `${phone}@s.whatsapp.net` : null;
+    if (!to) return false;
+    return await sendText(session.socket, to, text);
   } catch (error) {
     console.error(`[Whatsapp] Erro ao enviar mensagem (loja ${storeId}).`);
     return false;
@@ -803,5 +875,5 @@ module.exports = {
   sendMessageToCustomer,
   // Ponto de teste: permite exercitar o fluxo de conversa sem abrir uma sessão
   // real do WhatsApp. Não altera o comportamento em produção.
-  __test: { handleIncomingMessage, conversations },
+  __test: { handleIncomingMessage, conversations, resolveCustomerIdentity, sendText, clearConversationState },
 };

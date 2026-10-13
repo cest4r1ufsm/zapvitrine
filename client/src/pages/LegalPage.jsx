@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 // realmente faz (ver server/src e deploy/backup-agtgestor.sh).
 
 const CONTACT = 'contato@agentegestor.com.br';
-const UPDATED = '2 de outubro de 2026';
+const UPDATED = '13 de outubro de 2026';
 
 const PAGES = {
   privacidade: {
@@ -18,9 +18,9 @@ const PAGES = {
         'Conta: nome, e-mail e senha. A senha é guardada só de forma criptografada (hash).',
         'Negócio: nome, telefone, endereço, horários, serviços, preços, profissionais, logotipo e imagens que você envia.',
         'Clientes do seu negócio: nome, telefone, agendamentos, pedidos e observações. Esses dados entram quando você cadastra ou quando o cliente agenda pelo robô do WhatsApp.',
-        'WhatsApp: quando você conecta seu número, guardamos no servidor a sessão do WhatsApp para o robô responder por você. O robô lê as mensagens recebidas para responder e salva só o agendamento ou pedido criado.',
+        'WhatsApp: na conexão oficial, guardamos identificadores da conta e do número, autorização protegida no servidor, mensagens necessárias ao atendimento, estado temporário da conversa e confirmações ou falhas de envio. Na conexão por aparelho vinculado, guardamos também a sessão do WhatsApp. Esses dados permitem responder clientes, retomar conversas e acompanhar pedidos.',
         'Pagamento: no site, o pagamento é feito pela Stripe; no app Android, pelo Google Play. Não recebemos nem guardamos dados de cartão. Guardamos só a situação da assinatura.',
-        'O app não usa publicidade, não vende dados e não usa ferramentas de rastreamento de terceiros.',
+        'O app não usa publicidade e não vende dados. A conexão oficial carrega o serviço de autorização da Meta para vincular o WhatsApp Business.',
       ]],
       ['Para que usamos', [
         'Criar e manter sua conta, mostrar sua agenda e loja, responder seus clientes pelo WhatsApp, cobrar a assinatura, enviar e-mails de confirmação e de recuperação de senha, e dar suporte.',

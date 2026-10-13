@@ -6,6 +6,10 @@ const { processImage } = require('../utils/processImage');
 const { validateSchedulingConfig } = require('../utils/availability');
 
 const router = express.Router();
+function safeStore(store) {
+  const { botToken, botWebhookToken, officialToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...safe } = store;
+  return safe;
+}
 
 // Get store
 router.get('/', auth, async (req, res) => {
@@ -19,8 +23,7 @@ router.get('/', auth, async (req, res) => {
     }
     // Nunca enviar segredos/ids internos ao navegador (o painel não usa esses campos;
     // subscriptionStatus, plan e trialEndsAt continuam presentes)
-    const { botToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...safeStore } = store;
-    res.json(safeStore);
+    res.json(safeStore(store));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar loja' });
@@ -63,7 +66,7 @@ router.put('/', auth, async (req, res) => {
       },
     });
 
-    res.json(store);
+    res.json(safeStore(store));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao atualizar loja' });
@@ -133,7 +136,7 @@ router.get('/chatbot', auth, async (req, res) => {
     });
     if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
 
-    const { botToken, ...rest } = store;
+    const { botToken, botWebhookToken, ...rest } = store;
     res.json({
       ...rest,
       botTokenSet: !!botToken,
@@ -149,6 +152,9 @@ router.get('/chatbot', auth, async (req, res) => {
 router.put('/chatbot', auth, async (req, res) => {
   try {
     const { botEnabled, botGreeting, botAwayMessage, botPhoneId, botToken, botWebhookToken } = req.body;
+    const current = await prisma.store.findUnique({ where: { userId: req.user.id } });
+    if (current?.officialStatus === 'connected' && [botPhoneId, botToken, botWebhookToken].some(v => v !== undefined)) return res.status(409).json({ error: 'Desconecte a integração oficial antes de alterar credenciais manuais' });
+    if (botEnabled !== undefined && typeof botEnabled !== 'boolean') return res.status(400).json({ error: 'botEnabled inválido' });
 
     const store = await prisma.store.update({
       where: { userId: req.user.id },
@@ -172,7 +178,7 @@ router.put('/chatbot', auth, async (req, res) => {
       botPhoneId: store.botPhoneId,
       botTokenSet: !!store.botToken,
       botTokenLast4: store.botToken ? store.botToken.slice(-4) : null,
-      botWebhookToken: store.botWebhookToken,
+
     });
   } catch (error) {
     console.error(error);

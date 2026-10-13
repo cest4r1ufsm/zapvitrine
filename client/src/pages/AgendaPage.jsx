@@ -62,8 +62,8 @@ function minutesToTop(h, m, startHour) {
 }
 
 const SLOT_PX   = 60;  // px per hour
-const START_HOUR = 7;
-const END_HOUR   = 22;
+const START_HOUR = 0;
+const END_HOUR   = 24;
 const HOURS      = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i);
 
 // ─── New Appointment Modal ───────────────────────────────────────────────────
@@ -75,6 +75,9 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState('');
+  const [catalogError, setCatalogError] = useState('');
+  const [slotsError, setSlotsError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   const todayStr = (() => {
     return nowBRT().toISOString().slice(0, 10);
@@ -92,25 +95,32 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
   });
 
   useEffect(() => {
+    let cancelled = false;
     Promise.all([api.get('/professionals'), api.get('/products')]).then(([p, s]) => {
+      if (cancelled) return;
+      setCatalogError('');
       setProfessionals(p.filter(x => x.active));
       setServices(s.filter(x => x.active));
-    }).catch(() => {});
-  }, []);
+    }).catch(() => { if (!cancelled) setCatalogError('Não foi possível carregar os serviços e profissionais.'); });
+    return () => { cancelled = true; };
+  }, [retry]);
 
   useEffect(() => {
-    if (!form.productId || !form.date) { setSlots([]); return; }
+    let cancelled = false;
+    if (!form.productId || !form.date) { setSlots([]); setSlotsError(''); return; }
     // Duração inválida: não consulta (o servidor recusaria com 400)
     if (form.duration !== '' && !/^\d+$/.test(form.duration)) { setSlots([]); return; }
     setLoadingSlots(true);
+    setSlotsError('');
     const params = new URLSearchParams({ date: form.date, serviceId: form.productId });
     if (form.professionalId) params.set('professionalId', form.professionalId);
     if (form.duration !== '') params.set('duration', form.duration);
     api.get(`/availability/slots?${params}`)
-      .then(r => setSlots(r.slots || []))
-      .catch(() => setSlots([]))
-      .finally(() => setLoadingSlots(false));
-  }, [form.productId, form.date, form.professionalId, form.duration]);
+      .then(r => { if (!cancelled) setSlots(r.slots || []); })
+      .catch(() => { if (!cancelled) { setSlots([]); setSlotsError('Não foi possível consultar os horários. Tente novamente.'); } })
+      .finally(() => { if (!cancelled) setLoadingSlots(false); });
+    return () => { cancelled = true; };
+  }, [form.productId, form.date, form.professionalId, form.duration, retry]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -136,7 +146,7 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
     }
   }
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v, ...(k !== 'time' ? { time: '' } : {}) }));
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v, ...(['productId', 'professionalId', 'date', 'duration'].includes(k) ? { time: '' } : {}) }));
   const selectedService = services.find(s => s.id === parseInt(form.productId));
 
   // Ao trocar o serviço, a duração volta para o padrão dele (que o usuário pode ajustar)
@@ -158,6 +168,10 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
         </div>
         <form onSubmit={handleSubmit} style={modal.body}>
           {error && <div style={modal.error}>{error}</div>}
+          {(catalogError || slotsError) && <div style={modal.error} role="alert">
+            {catalogError || slotsError}{' '}
+            <button type="button" style={modal.btnSecondary} onClick={() => setRetry(n => n + 1)}>Tentar novamente</button>
+          </div>}
 
           <div style={modal.row}>
             <div style={modal.field}>
@@ -239,6 +253,8 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
                     ? 'Buscando horários...'
                     : !form.productId
                       ? 'Selecione o serviço primeiro.'
+                      : slotsError
+                        ? 'Consulta indisponível. Use Tentar novamente acima.'
                       : 'Nenhum horário livre nesta data. O dia pode estar fechado, bloqueado ou lotado. Escolha outra data.'}
                 </div>
               )}
@@ -291,10 +307,11 @@ function OrderCard({ order, onStatusChange }) {
   async function handleStatus(status) {
     setUpdating(true);
     try {
-      await ordersAPI.updateStatus(order.id, status);
+      const result = await ordersAPI.updateStatus(order.id, status);
       onStatusChange(order.id, status);
-      setStatusError('');
-      setOpen(false);
+      const notificationFailed = result.notification?.status === 'failed';
+      setStatusError(notificationFailed ? 'Status salvo, mas a mensagem não foi enviada. Avise o cliente pelo WhatsApp.' : '');
+      if (!notificationFailed) setOpen(false);
     } catch (err) {
       // Falha silenciosa aqui fazia o admin acreditar que confirmou/cancelou.
       setStatusError(err.message || 'Não foi possível alterar o status.');

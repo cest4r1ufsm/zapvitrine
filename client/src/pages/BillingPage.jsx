@@ -11,6 +11,7 @@ import {
 } from '../services/playBilling';
 import UIIcon from '../components/UIIcon';
 import DeleteAccountCard from '../components/DeleteAccountCard';
+import { hasPaidAccess } from '../services/entitlement';
 
 export default function BillingPage() {
   const { store, refreshStore } = useAuth();
@@ -69,8 +70,7 @@ export default function BillingPage() {
     runPlay(playRestore, (r) => (r ? 'Compra restaurada.' : 'Nenhuma assinatura encontrada nesta conta Google.'));
 
   const isPlay = store?.subscriptionSource === 'play';
-  const isActive = store?.subscriptionStatus === 'active'
-    && (!isPlay || (store?.subscriptionExpiresAt && new Date(store.subscriptionExpiresAt) > new Date()));
+  const isActive = hasPaidAccess(store);
   const price = inApp ? (googlePrice || '—') : 'R$ 27,90';
 
   let action = null;

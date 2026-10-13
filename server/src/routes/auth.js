@@ -271,6 +271,11 @@ router.delete('/account', auth, loginLimiter, async (req, res) => {
     });
 
     if (store) {
+      // Invalidate authorization before stopping sessions or cancelling billing.
+      // Workers re-check the store before effects; new inbound events are ignored.
+      await prisma.store.update({ where: { id: store.id }, data: {
+        active: false, botEnabled: false, officialStatus: 'disconnected', officialToken: null,
+      } });
       // require tardio evita ciclo de dependência (whatsapp → premium → prisma)
       const { stopSession } = require('../services/whatsapp');
       await stopSession(store.id).catch((err) => console.error('Excluir conta: WhatsApp', err.message));
@@ -289,7 +294,18 @@ router.delete('/account', auth, loginLimiter, async (req, res) => {
       }
     }
 
-    await prisma.user.delete({ where: { id: req.user.id } });
+    await prisma.$transaction(async tx => {
+      if (store) {
+        await tx.whatsAppSignupState.deleteMany({ where: { storeId: store.id } });
+        await tx.whatsAppInbox.deleteMany({ where: { storeId: store.id } });
+        await tx.whatsAppDelivery.deleteMany({ where: { storeId: store.id } });
+        await tx.whatsAppConversation.deleteMany({ where: { OR: [
+          { id: { startsWith: `${store.id}:` } }, { id: { startsWith: `baileys:${store.id}:` } },
+        ] } });
+      }
+      await tx.whatsAppWorkerLease.deleteMany({ where: { id: `signup:${req.user.id}` } });
+      await tx.user.delete({ where: { id: req.user.id } });
+    });
     res.json({ success: true, message: 'Conta excluída.' });
   } catch (error) {
     console.error(error);
@@ -309,7 +325,7 @@ router.get('/me', auth, async (req, res) => {
     // Nunca enviar segredos/ids internos ao navegador
     let safeStore = null;
     if (store) {
-      const { botToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...rest } = store;
+      const { botToken, botWebhookToken, officialToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...rest } = store;
       safeStore = rest;
     }
 

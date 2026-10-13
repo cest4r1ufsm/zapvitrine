@@ -11,14 +11,14 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function fixture({ registered = false, request, render, browser } = {}) {
+function fixture({ registered = false, request, render, browser, onMessage } = {}) {
   let clock = Date.UTC(2026, 9, 6);
   let timerId = 0;
   const timers = new Map();
   const disk = new Map();
   if (registered) disk.set(1, { me: { id: `${PHONE}:4@s.whatsapp.net` }, account: { signature: 'synthetic' }, registered: false });
   const sockets = [], writes = [], removed = [], updates = [], reads = [];
-  const store = { id: 1, eligible: true };
+  const store = { id: 1, eligible: true, botEnabled: true };
   const manager = createWhatsAppSessions({
     ...(browser ? { browser } : {}),
     now: () => clock,
@@ -37,7 +37,7 @@ function fixture({ registered = false, request, render, browser } = {}) {
     removeAuth: async (id) => { removed.push(id); disk.delete(id); },
     renderQr: render || (async raw => 'data:image/png;base64,' + raw),
     disconnectReason: { loggedOut: 401, restartRequired: 515, timedOut: 408 },
-    logger: {}, onMessage: async () => {},
+    logger: {}, onMessage: onMessage || (async () => {}),
     makeSocket: (options) => {
       const socket = {
         ev: new EventEmitter(), options, requests: [], ended: 0, logouts: 0,
@@ -312,12 +312,12 @@ test('normaliza número brasileiro: sem 55, com/sem o 9 por DDD e forma alternat
   assert.deepEqual(n('(11) 99999-0000'), ['5511999990000', '551199990000']);
   // DDD até 28 mantém o 9; a partir de 31 o padrão é sem o 9.
   assert.deepEqual(n('+55 21 99999-0000'), ['5521999990000', '552199990000']);
-  assert.deepEqual(n('+55 11 9999-0000'), ['5511999990000', '551199990000']);
-  assert.deepEqual(n('31 99999-0000'), ['553199990000', '5531999990000']);
-  assert.deepEqual(n('+55 31 99999-0000'), ['553199990000', '5531999990000']);
-  assert.deepEqual(n('55 99999-0000'), ['555599990000', '5555999990000']);
+  assert.deepEqual(n('+55 11 9999-0000'), ['551199990000', '5511999990000']);
+  assert.deepEqual(n('31 99999-0000'), ['5531999990000', '553199990000']);
+  assert.deepEqual(n('+55 31 99999-0000'), ['5531999990000', '553199990000']);
+  assert.deepEqual(n('55 99999-0000'), ['5555999990000', '555599990000']);
   assert.deepEqual(n('+55 55 9999-0000'), ['555599990000', '5555999990000']);
-  assert.deepEqual(n('85999990000'), ['558599990000', '5585999990000']);
+  assert.deepEqual(n('85999990000'), ['5585999990000', '558599990000']);
   // Fixo: sem forma alternativa.
   assert.deepEqual(n('11 3333-4444'), ['551133334444', null]);
   // Internacional com + não muda.
@@ -348,10 +348,10 @@ test('tentar a outra forma do número ignora o cooldown uma vez e pede o código
   await f.startSession(1, { ...pairing, phoneNumber: '31 99999-0000' });
   f.emit(0, { qr: 'raw' });
   await settle();
-  assert.deepEqual(f.sockets[0].requests, ['553199990000']);
+  assert.deepEqual(f.sockets[0].requests, ['5531999990000']);
   let status = f.getSessionStatus(1);
-  assert.equal(status.pairingPhone, '553199990000');
-  assert.equal(status.alternatePhoneNumber, '5531999990000');
+  assert.equal(status.pairingPhone, '5531999990000');
+  assert.equal(status.alternatePhoneNumber, '553199990000');
   // Outro número qualquer continua sujeito ao cooldown.
   await assert.rejects(f.startSession(1, { ...pairing, phoneNumber: '5531888880000', exact: true, restart: true }), { code: 'CONNECTION_COOLDOWN' });
   // Forma alternativa, exata: sem esperar e sem normalizar de volta.
@@ -360,14 +360,14 @@ test('tentar a outra forma do número ignora o cooldown uma vez e pede o código
   assert.equal(f.sockets[0].ended, 1);
   f.emit(1, { qr: 'raw' });
   await settle();
-  assert.deepEqual(f.sockets[1].requests, ['5531999990000']);
+  assert.deepEqual(f.sockets[1].requests, ['553199990000']);
   status = f.getSessionStatus(1);
-  assert.equal(status.pairingPhone, '5531999990000');
-  assert.equal(status.alternatePhoneNumber, '553199990000');
+  assert.equal(status.pairingPhone, '553199990000');
+  assert.equal(status.alternatePhoneNumber, '5531999990000');
   // Voltar logo em seguida respeita o cooldown (não alterna sem fim).
-  await assert.rejects(f.startSession(1, { ...pairing, phoneNumber: '553199990000', exact: true, restart: true }), { code: 'CONNECTION_COOLDOWN' });
+  await assert.rejects(f.startSession(1, { ...pairing, phoneNumber: '5531999990000', exact: true, restart: true }), { code: 'CONNECTION_COOLDOWN' });
   await f.advance(PAIRING_COOLDOWN_MS);
-  await f.startSession(1, { ...pairing, phoneNumber: '553199990000', exact: true, restart: true });
+  await f.startSession(1, { ...pairing, phoneNumber: '5531999990000', exact: true, restart: true });
   assert.equal(f.sockets.length, 3);
 });
 
@@ -384,4 +384,67 @@ test('fim das referências de QR durante o código vira código expirado', async
   assert.equal(status.pairingCode, null);
   assert.equal(status.pairingPhone, null);
   assert.equal(f.sockets.length, 1);
+});
+
+
+test('messages filter history, deduplicate and serialize per customer', async () => {
+  const calls = [], gate = deferred();
+  const f = fixture({ registered: true, onMessage: async (_store, _socket, _from, text) => {
+    calls.push(text); if (text === 'first') await gate.promise;
+  } });
+  await f.startSession(1, { resume: true });
+  f.emit(0, { connection: 'open' }); await settle();
+  const socket = f.sockets[0];
+  const message = (id, text) => ({ key: { id, remoteJid: PHONE + '@s.whatsapp.net' }, message: { conversation: text } });
+  socket.ev.emit('messages.upsert', { type: 'append', messages: [message('history', 'old')] });
+  socket.ev.emit('messages.upsert', { type: 'notify', messages: [message('a', 'first')] });
+  socket.ev.emit('messages.upsert', { type: 'notify', messages: [message('a', 'first'), message('b', 'second')] });
+  await settle(); assert.deepEqual(calls, ['first']);
+  gate.resolve(); await settle(); assert.deepEqual(calls, ['first', 'second']);
+  f.store.botEnabled = false;
+  socket.ev.emit('messages.upsert', { type: 'notify', messages: [message('c', 'paused')] });
+  await settle(); assert.deepEqual(calls, ['first', 'second']);
+  f.store.botEnabled = true; f.store.eligible = false;
+  socket.ev.emit('messages.upsert', { type: 'notify', messages: [message('d', 'expired')] });
+  await settle(); assert.deepEqual(calls, ['first', 'second']);
+  await f.stopSession(1);
+});
+
+test('restore and network reconnect preserve paused bot choice', async () => {
+  const f = fixture({ registered: true }); f.store.botEnabled = false;
+  await f.startSession(1, { resume: true }); f.emit(0, { connection: 'open' }); await settle();
+  assert.equal(f.updates.some(value => value.botEnabled === true), false);
+  f.emit(0, { connection: 'close', lastDisconnect: { error: { output: { statusCode: 503 } } } });
+  await f.advance(5000); f.emit(1, { connection: 'open' }); await settle();
+  assert.equal(f.updates.some(value => value.botEnabled === true), false);
+  await f.stopSession(1);
+});
+
+test('wrapped text is processed; media gets explanatory reply', async () => {
+  const calls = [], replies = [];
+  const f = fixture({ registered: true, onMessage: async (_store, _socket, _from, text) => calls.push(text) });
+  await f.startSession(1, { resume: true }); f.emit(0, { connection: 'open' }); await settle();
+  f.sockets[0].sendMessage = async (_from, value) => replies.push(value.text);
+  f.sockets[0].ev.emit('messages.upsert', { type: 'notify', messages: [
+    { key: { id: 'wrapped', remoteJid: PHONE + '@s.whatsapp.net' }, message: { ephemeralMessage: { message: { conversation: 'menu' } } } },
+    { key: { id: 'audio', remoteJid: PHONE + '@s.whatsapp.net' }, message: { audioMessage: {} } },
+  ] });
+  await settle(); assert.deepEqual(calls, ['menu']); assert.equal(replies.length, 1);
+  await f.stopSession(1);
+});
+
+
+test('official integration prevents new legacy sessions and queued responses even in error state', async () => {
+  const calls = [];
+  const f = fixture({ registered: true, onMessage: async () => calls.push(true) });
+  f.store.officialPhoneId = 'synthetic-official'; f.store.officialStatus = 'reauthorization_required';
+  await assert.rejects(f.startSession(1), { code: 'OFFICIAL_INTEGRATION_ACTIVE' });
+  assert.equal(f.sockets.length, 0);
+  f.store.officialPhoneId = null;
+  await f.startSession(1, { resume: true }); f.emit(0, { connection: 'open' }); await settle();
+  f.store.officialPhoneId = 'synthetic-official';
+  f.sockets[0].ev.emit('messages.upsert', { type: 'notify', messages: [
+    { key: { id: 'handoff', remoteJid: PHONE + '@s.whatsapp.net' }, message: { conversation: 'menu' } },
+  ] });
+  await settle(); assert.equal(calls.length, 0); await f.stopSession(1);
 });

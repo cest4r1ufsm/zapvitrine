@@ -21,7 +21,7 @@ if (
 
 if (!process.env.META_APP_SECRET) {
   console.warn(
-    '⚠️  META_APP_SECRET não configurado — o webhook da WhatsApp Cloud API está SEM validação de assinatura. ' +
+    '⚠️  META_APP_SECRET não configurado — webhooks oficiais ficam desativados até configurar o segredo. ' +
     'Configure o App Secret da Meta no .env para ativar a validação.'
   );
 }
@@ -59,10 +59,11 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", 'https://connect.facebook.net'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", 'https://www.facebook.com', 'https://graph.facebook.com'],
+        frameSrc: ['https://www.facebook.com', 'https://web.facebook.com'],
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
@@ -102,6 +103,10 @@ app.use(
 // Teto geral de requisições na API (webhooks têm validação própria de assinatura e ficam de fora)
 app.use('/api', apiLimiter);
 
+app.get('/api/health', async (req, res) => {
+  try { await prisma.$queryRaw`SELECT 1`; res.json({ status: 'ok' }); }
+  catch { res.status(503).json({ status: 'unavailable' }); }
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/store', storeRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -110,6 +115,7 @@ app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/webhook', webhookRoutes); // Webhook da WhatsApp Cloud API (Meta)
 app.use('/api/orders', ordersRoutes);
+app.use('/api/whatsapp/official', require('./routes/officialWhatsApp'));
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/professionals', professionalsRoutes);
@@ -193,6 +199,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 AGTgestor API rodando em http://localhost:${PORT}`);
+  webhookRoutes.startInboxWorker().catch(err => console.error('[WhatsApp inbox startup]', err.message));
   // Restore WhatsApp sessions
   restoreSessions().catch(err => console.error('Error restoring sessions:', err));
   // Renovação/cancelamento das assinaturas do Google Play, sem webhook

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { authAPI } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -7,29 +7,41 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [store, setStore] = useState(null);
+  const [sessionError, setSessionError] = useState('');
+  const sessionOperation = useRef(0);
   const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('pedidoprontobot_token')));
 
-  useEffect(() => {
+  const restoreSession = useCallback(async () => {
     const token = localStorage.getItem('pedidoprontobot_token');
-    if (token) {
-      authAPI.me()
-        .then((data) => {
-          setUser(data.user);
-          setStore(data.store);
-        })
-        .catch(() => {
+    if (!token) return;
+    const operation = ++sessionOperation.current;
+    setLoading(true);
+    setSessionError('');
+    try {
+      const data = await authAPI.me();
+      if (operation !== sessionOperation.current || localStorage.getItem('pedidoprontobot_token') !== token) return;
+      setUser(data.user);
+      setStore(data.store);
+    } catch (err) {
+      if (operation !== sessionOperation.current) return;
+      if (err.status === 401) {
           localStorage.removeItem('pedidoprontobot_token');
-        })
-        .finally(() => setLoading(false));
+          setUser(null);
+          setStore(null);
+      } else {
+        setSessionError('Não foi possível acessar sua conta agora. Confira a conexão e tente novamente.');
+      }
+    } finally {
+      if (operation === sessionOperation.current) setLoading(false);
     }
   }, []);
+
+  useEffect(() => { void restoreSession(); }, [restoreSession]);
 
   const login = async (email, password) => {
     const data = await authAPI.login({ email, password });
     localStorage.setItem('pedidoprontobot_token', data.token);
-    setUser(data.user);
-    const meData = await authAPI.me();
-    setStore(meData.store);
+    await restoreSession();
     return data;
   };
 
@@ -41,9 +53,12 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    sessionOperation.current += 1;
     localStorage.removeItem('pedidoprontobot_token');
     setUser(null);
     setStore(null);
+    setSessionError('');
+    setLoading(false);
   };
 
   const refreshStore = async () => {
@@ -52,7 +67,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, store, loading, login, register, logout, refreshStore }}>
+    <AuthContext.Provider value={{ user, store, loading, sessionError, restoreSession, login, register, logout, refreshStore }}>
       {children}
     </AuthContext.Provider>
   );

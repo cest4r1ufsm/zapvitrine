@@ -3,6 +3,10 @@ const prisma = require('../lib/prisma');
 const { auth, adminOnly } = require('../middleware/auth');
 
 const router = express.Router();
+function safeStore(store) {
+  const { botToken, officialToken, botWebhookToken, playPurchaseToken, stripeCustomerId, stripeSubscriptionId, ...safe } = store;
+  return safe;
+}
 
 // Get all users (admin only)
 router.get('/users', auth, adminOnly, async (req, res) => {
@@ -38,7 +42,7 @@ router.get('/stores', auth, adminOnly, async (req, res) => {
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.json(stores);
+    res.json(stores.map(safeStore));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar lojas' });
@@ -55,7 +59,7 @@ router.patch('/stores/:id/toggle', auth, adminOnly, async (req, res) => {
       where: { id: store.id },
       data: { active: !store.active },
     });
-    res.json(updated);
+    res.json(safeStore(updated));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao alterar status da loja' });

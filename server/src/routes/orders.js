@@ -274,7 +274,8 @@ router.patch('/:id/status', auth, async (req, res) => {
       include: { product: true },
     });
 
-    // Notify customer via WhatsApp
+    // A status change remains saved if notification fails; expose acceptance separately.
+    let notification = { status: 'not_requested' };
     try {
       let msg = '';
       if (status === 'confirmed') {
@@ -286,13 +287,20 @@ router.patch('/:id/status', auth, async (req, res) => {
       }
 
       if (msg && updated.customerPhone) {
-        await sendMessageToCustomer(store.id, updated.customerPhone, msg);
+        if (store.officialPhoneId || store.botPhoneId && store.botToken) {
+          const result = await require('../services/officialWhatsApp').send(store, updated.customerPhone, { type: 'text', text: { body: msg } });
+          notification = { status: 'accepted', messageId: result.id };
+        } else {
+          const result = await sendMessageToCustomer(store.id, updated.customerPhone, msg);
+          notification = result === false ? { status: 'failed' } : { status: 'accepted' };
+        }
       }
     } catch (e) {
+      notification = { status: 'failed', error: 'Não foi possível enviar a notificação. O status do pedido foi salvo.' };
       console.error('Erro ao notificar cliente via WhatsApp:', e.message);
     }
 
-    res.json(updated);
+    res.json({ ...updated, notification });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao atualizar pedido' });

@@ -4,6 +4,7 @@ import { isAndroidApp } from '../services/playBilling';
 import './WhatsAppConnection.css';
 
 const WAITING = new Set(['connecting', 'reconnecting', 'qr', 'pairing']);
+const shouldPoll = status => WAITING.has(status) || status === 'connected';
 const DISCONNECTED = { status: 'disconnected', qr: null, phone: null, error: null };
 const BR_DDDS = new Set([
   11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38,
@@ -94,13 +95,14 @@ export default function WhatsAppConnection({ initialStatus = DISCONNECTED, onSta
         }
       } finally {
         inFlight = false;
-        if (!cancelled && generation === operation.current && (next ? WAITING.has(next.status) : WAITING.has(current.current.status))) {
-          timer = setTimeout(poll, 3000);
+        const latest = next?.status || current.current.status;
+        if (!cancelled && generation === operation.current && shouldPoll(latest)) {
+          timer = setTimeout(poll, latest === 'connected' ? 10000 : 3000);
         }
       }
     };
     const resume = () => { if (document.visibilityState !== 'hidden') void poll(); };
-    if (WAITING.has(status.status)) timer = setTimeout(poll, 1500);
+    if (shouldPoll(status.status)) timer = setTimeout(poll, status.status === 'connected' ? 10000 : 1500);
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('focus', resume);
     return () => {

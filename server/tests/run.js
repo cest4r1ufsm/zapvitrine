@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const SUITES = [
+  ['WhatsApp oficial: autorização, assinatura e durabilidade', 'official-whatsapp.test.js'],
   ['Motor de disponibilidade (unidade)', 'availability.test.js'],
   ['Rotas de agenda (integração)', 'routes.test.js'],
   ['Regressão, isolamento e concorrência', 'regression.test.js'],

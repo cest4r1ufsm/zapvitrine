@@ -1,6 +1,14 @@
 const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 export const API_URL = import.meta.env.VITE_API_URL || (isDev ? 'http://localhost:3001/api' : '/api');
 
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 function getToken() {
   return localStorage.getItem('pedidoprontobot_token');
 }
@@ -22,7 +30,7 @@ async function request(endpoint, options = {}) {
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Erro ${res.status}`);
+    throw new ApiError(data.error || `Erro ${res.status}`, res.status);
   }
 
   return res.json();
@@ -37,7 +45,7 @@ async function uploadFile(endpoint, formData) {
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Erro ${res.status}`);
+    throw new ApiError(data.error || `Erro ${res.status}`, res.status);
   }
 
   return res.json();

@@ -51,6 +51,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${hostName}" android:pathPrefix="/dashboard" />
+                <data android:scheme="https" android:host="${hostName}" android:pathPrefix="/verify-email" />
+                <data android:scheme="https" android:host="${hostName}" android:pathPrefix="/reset-password" />
             </intent-filter>
         </activity>
 

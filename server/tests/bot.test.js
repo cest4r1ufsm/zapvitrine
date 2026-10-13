@@ -6,6 +6,7 @@
 // completa contra o webhook de verdade, com a chamada à Graph API interceptada.
 const { criarRunner, criarBancoTemporario, proximaSegunda } = require('./helpers');
 
+process.env.META_APP_SECRET = 'test-meta-secret';
 const banco = criarBancoTemporario(); // antes de carregar o Prisma
 
 const express = require('express');
@@ -39,6 +40,14 @@ module.exports = async function run() {
       try { corpo = JSON.parse(options?.body || '{}'); } catch { /* ignora */ }
       enviadas.push(corpo);
       return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'stub' }] }) };
+    }
+    if (String(url).includes('/api/webhook/')) {
+      const payload = JSON.parse(options.body || '{}');
+      for (const entry of payload.entry || []) for (const change of entry.changes || []) {
+        change.value.metadata = { phone_number_id: '123' };
+      }
+      options.body = JSON.stringify(payload);
+      options.headers['x-hub-signature-256'] = 'sha256=' + require('crypto').createHmac('sha256', process.env.META_APP_SECRET).update(options.body).digest('hex');
     }
     return fetchReal(url, options);
   };
@@ -93,7 +102,7 @@ module.exports = async function run() {
       data: {
         userId: user.id, name: 'Barbearia Teste', slug: 'bot-' + Date.now(), phone: '11999999999',
         schedulingConfig: JSON.stringify(CONFIG_AGENDA),
-        botEnabled: true, botToken: 'stub-token', botPhoneId: '123', botWebhookToken: 'verify',
+        subscriptionStatus: 'active', botEnabled: true, botToken: 'stub-token', botPhoneId: '123', botWebhookToken: 'verify',
       },
     });
     const servico = await prisma.product.create({

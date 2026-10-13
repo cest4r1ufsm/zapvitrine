@@ -118,7 +118,7 @@ test('rota normaliza número brasileiro sem 55, aceita forma exata e devolve nú
       calls.push(normalized);
       return { status: 'connecting', method: normalized.method };
     },
-    getSessionStatus: () => ({ status: 'pairing', pairingCode: 'ABCD1234', pairingPhone: '553199990000', alternatePhoneNumber: '5531999990000' }),
+    getSessionStatus: () => ({ status: 'pairing', pairingCode: 'ABCD1234', pairingPhone: '5531999990000', alternatePhoneNumber: '553199990000' }),
     stopSession: async () => {},
   }));
   const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
@@ -130,10 +130,10 @@ test('rota normaliza número brasileiro sem 55, aceita forma exata e devolve nú
   assert.equal((await post({ method: 'pairing', phoneNumber: '11 99999-0000' })).status, 200);
   assert.equal(calls[0].phoneNumber, '5511999990000');
   assert.equal((await post({ method: 'pairing', phoneNumber: '(31) 99999-0000' })).status, 200);
-  assert.equal(calls[1].phoneNumber, '553199990000');
-  assert.equal(calls[1].alternatePhoneNumber, '5531999990000');
-  assert.equal((await post({ method: 'pairing', phoneNumber: '5531999990000', exact: true, restart: true })).status, 200);
-  assert.equal(calls[2].phoneNumber, '5531999990000');
+  assert.equal(calls[1].phoneNumber, '5531999990000');
+  assert.equal(calls[1].alternatePhoneNumber, '553199990000');
+  assert.equal((await post({ method: 'pairing', phoneNumber: '553199990000', exact: true, restart: true })).status, 200);
+  assert.equal(calls[2].phoneNumber, '553199990000');
   assert.equal(calls[2].exact, true);
   assert.equal((await post({ method: 'pairing', phoneNumber: '+1 415 555 1234' })).status, 200);
   assert.equal(calls[3].phoneNumber, '14155551234');
@@ -143,6 +143,6 @@ test('rota normaliza número brasileiro sem 55, aceita forma exata e devolve nú
   assert.equal((await badExact.json()).code, 'INVALID_CONNECTION_OPTIONS');
   assert.equal(calls.length, 4);
   const status = await (await fetch(base + '/status', { headers })).json();
-  assert.equal(status.pairingPhone, '553199990000');
-  assert.equal(status.alternatePhoneNumber, '5531999990000');
+  assert.equal(status.pairingPhone, '5531999990000');
+  assert.equal(status.alternatePhoneNumber, '553199990000');
 });

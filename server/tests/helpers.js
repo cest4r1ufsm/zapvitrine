@@ -51,6 +51,8 @@ function criarBancoTemporario() {
   fs.copyFileSync(DEV_DB, destino);
   process.env.DATABASE_URL = 'file:' + destino.replace(/\\/g, '/');
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+  const result = require('child_process').spawnSync(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'push', '--skip-generate', '--schema', path.join(SERVER_DIR, 'prisma', 'schema.prisma')], { env: process.env, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error('Falha ao preparar banco descartável: ' + result.stderr + result.stdout);
   return {
     caminho: destino,
     remover() {
@@ -132,10 +134,10 @@ const HORARIOS_PADRAO = {
 const configPadrao = (extra = {}) =>
   JSON.stringify({ slotInterval: 30, hours: HORARIOS_PADRAO, ...extra });
 
-// Próxima segunda-feira com pelo menos 8 dias de folga, para os testes nunca
+// Próxima segunda-feira futura (amanhã em diante), para os testes nunca
 // esbarrarem no corte de "hoje + 60 min".
 function proximaSegunda() {
-  const d = new Date(Date.now() + 8 * 86400000);
+  const d = new Date(Date.now() + 86400000);
   while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }

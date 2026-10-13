@@ -23,10 +23,7 @@ function requestError(message, code) {
   return Object.assign(new Error(message), { code, status: 400 });
 }
 
-// O código só funciona com o número exato da conta no WhatsApp. No Brasil, contas de
-// DDD 31 em diante costumam estar registradas sem o 9 extra (12 dígitos); DDD 11 a 28
-// costumam ter o 9 (13 dígitos). Devolve a forma padrão e a outra forma (com/sem o 9).
-// `exact` usa o número como veio (tentativa com a forma alternativa).
+// Preserve the exact supplied account identity. The alternate form requires explicit retry.
 function normalizePhone(raw, exact = false) {
   const plus = raw.trim().startsWith('+');
   let digits = raw.replace(/\D/g, '');
@@ -44,7 +41,7 @@ function normalizePhone(raw, exact = false) {
     if (withNine || withoutNine) {
       const long = withNine ? digits : digits.slice(0, 4) + '9' + digits.slice(4);
       const short = withNine ? digits.slice(0, 4) + digits.slice(5) : digits;
-      if (!exact) digits = ddd <= 28 ? long : short;
+      // Preserve exactly the supplied account identity; alternative requires user action.
       alternate = digits === long ? short : long;
     }
   }
@@ -59,13 +56,14 @@ function normalizeConnectOptions(options = {}) {
   if (!['qr', 'pairing'].includes(method)) {
     throw requestError('Escolha conectar por código ou por QR Code.', 'INVALID_CONNECTION_METHOD');
   }
-  for (const key of ['restart', 'exact']) {
+  for (const key of ['restart', 'exact', 'resume']) {
     if (options[key] !== undefined && typeof options[key] !== 'boolean') {
       throw requestError('Informe uma opção de conexão válida.', 'INVALID_CONNECTION_OPTIONS');
     }
   }
   const restart = options.restart === true;
-  if (method === 'qr') return { method, phoneNumber: null, alternatePhoneNumber: null, exact: false, restart };
+  const resume = options.resume === true;
+  if (method === 'qr') return { method, phoneNumber: null, alternatePhoneNumber: null, exact: false, restart, ...(resume ? { resume: true } : {}) };
   if (typeof options.phoneNumber !== 'string' || !/^\+?[\d\s().-]+$/.test(options.phoneNumber.trim())) {
     throw requestError('Informe o WhatsApp com DDD, por exemplo 11 91234-5678.', 'INVALID_PHONE_NUMBER');
   }
@@ -74,7 +72,7 @@ function normalizeConnectOptions(options = {}) {
   if (!phone) {
     throw requestError('Informe um número válido com DDD, por exemplo 11 91234-5678.', 'INVALID_PHONE_NUMBER');
   }
-  return { method, ...phone, exact, restart };
+  return { method, ...phone, exact, restart, ...(resume ? { resume: true } : {}) };
 }
 
 // Baileys 6.7.16 preenche `me` ANTES de concluir requestPairingCode (com registered=false).
@@ -202,6 +200,9 @@ function createWhatsAppSessions({
 
   async function connectLocked(storeId, options, previous = null) {
     const store = await prisma.store.findUnique({ where: { id: storeId } });
+    if (store?.officialPhoneId) {
+      throw Object.assign(new Error('O WhatsApp oficial está configurado. Desconecte essa integração antes de usar código ou QR.'), { code: 'OFFICIAL_INTEGRATION_ACTIVE', status: 409 });
+    }
     if (!store || !isEligible(store)) {
       throw Object.assign(new Error('Assinatura necessária para conectar o WhatsApp.'), { code: 'SUBSCRIPTION_REQUIRED', status: 403 });
     }
@@ -243,6 +244,7 @@ function createWhatsAppSessions({
       retries: previous ? previous.retries : 0,
       pairingTimer: null, connectionTimer: null, reconnectTimer: null,
       savePromise: Promise.resolve(), handlers: null,
+      messageQueues: new Map(), seenMessages: new Map(),
     };
     sessions.set(storeId, session);
     try {
@@ -275,7 +277,7 @@ function createWhatsAppSessions({
           session.authenticated = true;
           const storeNow = await prisma.store.findUnique({ where: { id: storeId } });
           if (!isLive(session)) return;
-          if (!storeNow || !isEligible(storeNow)) {
+          if (!storeNow || storeNow.officialPhoneId || !isEligible(storeNow)) {
             fail(session, 'SUBSCRIPTION_REQUIRED', 'Assinatura necessária para conectar o WhatsApp.');
             return;
           }
@@ -284,7 +286,7 @@ function createWhatsAppSessions({
           session.phone = (socket.user?.id || '').split('@')[0].split(':')[0];
           // Serializado com disconnect: não reativar bot após uma desconexão explícita.
           await serialize(storeId, async () => {
-            if (isLive(session) && session.status === 'connected') {
+            if (isLive(session) && session.status === 'connected' && !previous && !options.resume) {
               await prisma.store.update({ where: { id: storeId }, data: { botEnabled: true } });
             }
           });
@@ -372,16 +374,43 @@ function createWhatsAppSessions({
             if (isLive(session)) fail(session, 'SESSION_SAVE_FAILED', 'Não foi possível salvar a conexão. Tente novamente.');
           });
         },
-        'messages.upsert': async ({ messages = [] }) => {
-          if (!isLive(session) || session.status !== 'connected') return;
+        'messages.upsert': ({ messages = [], type }) => {
+          if (!isLive(session) || session.status !== 'connected' || type !== 'notify') return;
           for (const msg of messages) {
-            if (!isLive(session)) return;
             if (msg.key?.fromMe || !msg.message) continue;
             const from = msg.key?.remoteJid;
-            if (!from || from.endsWith('@g.us')) continue;
-            const text = msg.message.conversation || msg.message.extendedTextMessage?.text ||
-              msg.message.buttonsResponseMessage?.selectedDisplayText || msg.message.listResponseMessage?.title || '';
-            if (text.trim()) await onMessage(storeId, socket, from, text.trim(), msg);
+            if (!from || !/^[^@]+@(s\.whatsapp\.net|lid)$/.test(from)) continue;
+            const id = msg.key?.id;
+            if (!id) continue;
+            const dedupKey = `${from}:${id}`;
+            const cutoff = now() - 24 * 60 * 60 * 1000;
+            for (const [key, timestamp] of session.seenMessages) {
+              if (timestamp < cutoff) session.seenMessages.delete(key);
+            }
+            if (session.seenMessages.has(dedupKey)) continue;
+            if (session.seenMessages.size >= 10000) session.seenMessages.delete(session.seenMessages.keys().next().value);
+            session.seenMessages.set(dedupKey, now());
+            const previousMessage = session.messageQueues.get(from) || Promise.resolve();
+            const task = previousMessage.catch(() => {}).then(async () => {
+              if (!isLive(session) || session.status !== 'connected') return;
+              const currentStore = await prisma.store.findUnique({ where: { id: storeId } });
+              if (!isLive(session) || !currentStore?.botEnabled || currentStore.officialPhoneId || !isEligible(currentStore)) return;
+              let content = msg.message;
+              for (let depth = 0; depth < 5; depth++) {
+                const nested = content.ephemeralMessage?.message || content.viewOnceMessage?.message ||
+                  content.viewOnceMessageV2?.message || content.documentWithCaptionMessage?.message;
+                if (!nested) break;
+                content = nested;
+              }
+              const text = content.conversation || content.extendedTextMessage?.text ||
+                content.buttonsResponseMessage?.selectedDisplayText || content.listResponseMessage?.title || '';
+              if (text.trim()) await onMessage(storeId, socket, from, text.trim(), msg);
+              else if (content.audioMessage || content.imageMessage || content.documentMessage || content.videoMessage || content.stickerMessage) {
+                await socket.sendMessage(from, { text: 'Para continuar, envie sua mensagem em texto. Digite menu para ver as opções.' });
+              }
+            }).catch(() => { logger?.warn?.('Falha ao processar mensagem do chatbot.'); });
+            session.messageQueues.set(from, task);
+            task.finally(() => { if (session.messageQueues.get(from) === task) session.messageQueues.delete(from); });
           }
         },
       };

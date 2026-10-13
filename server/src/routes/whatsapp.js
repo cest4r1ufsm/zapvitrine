@@ -28,7 +28,7 @@ router.post('/connect', auth, requirePremium, connectLimiter, async (req, res) =
     if (error.code === 'SUBSCRIPTION_REQUIRED') {
       return res.status(403).json({ error: 'Assinatura necessária para usar este recurso', code: 'SUBSCRIPTION_REQUIRED' });
     }
-    if (['INVALID_CONNECTION_METHOD', 'INVALID_CONNECTION_OPTIONS', 'INVALID_PHONE_NUMBER', 'CONNECTION_COOLDOWN', 'CONNECTION_FAILED'].includes(error.code)) {
+    if (['INVALID_CONNECTION_METHOD', 'INVALID_CONNECTION_OPTIONS', 'INVALID_PHONE_NUMBER', 'CONNECTION_COOLDOWN', 'CONNECTION_FAILED', 'OFFICIAL_INTEGRATION_ACTIVE'].includes(error.code)) {
       return res.status(error.status || 400).json({ error: error.message, code: error.code });
     }
     console.error('Falha ao iniciar sessão WhatsApp.');

@@ -64,7 +64,7 @@ module.exports = async function run() {
     });
     const store = await prisma.store.create({
       data: {
-        userId: user.id, name: 'Salao Teste', slug: 'bail-' + Date.now(), phone: '11999999999',
+        botEnabled: true, subscriptionStatus: 'active', userId: user.id, name: 'Salao Teste', slug: 'bail-' + Date.now(), phone: '11999999999',
         schedulingConfig: JSON.stringify(CONFIG_AGENDA),
       },
     });
@@ -87,6 +87,15 @@ module.exports = async function run() {
       return enviadas.slice(antes).join('\n');
     }
 
+    await prisma.store.update({ where: { id: store.id }, data: { botEnabled: false } });
+    await falar('oi'); check('robô pausado não responde', enviadas.length === 0);
+    await prisma.store.update({ where: { id: store.id }, data: { botEnabled: true } });
+    const identity = await __test.resolveCustomerIdentity(socket, '999999@lid', { key: {} });
+    check('LID não vira número do lojista', identity === '999999@lid');
+    check('LID usa PN alternativo quando disponível',
+      await __test.resolveCustomerIdentity(socket, '999999@lid', { key: { remoteJidAlt: TELEFONE } }) === TELEFONE.split('@')[0]);
+    check('falha real de envio retorna false', await __test.sendText({ sendMessage: async () => { throw new Error('synthetic'); } }, TELEFONE, 'x') === false);
+
     console.log('\n-- Navegação até o agendamento --');
     await falar('menu');
     let r = await falar('1');
@@ -94,8 +103,13 @@ module.exports = async function run() {
     const numProduto = numeroDaOpcao(r, 'Corte') || '1';
     await falar(numProduto);
     check('produto escolhido, bot pede o nome', passo() === 'ask_name', 'passo: ' + passo());
+    const durable = await prisma.whatsAppConversation.findUnique({ where: { id: `baileys:${store.id}:${TELEFONE}` } });
+    check('estado persistido antes de próximo passo', JSON.parse(durable.state).step === 'ask_name');
+    conversations.clear(); // Simula reinício do processo, banco preservado.
+
     await falar('Maria Silva');
     check('nome aceito, bot pergunta o tipo', passo() === 'ask_type', 'passo: ' + passo());
+    await falar('3'); check('tipo inválido não vira entrega', passo() === 'ask_type');
 
     r = await falar('1'); // agendar
     check('bot pergunta o profissional', passo() === 'choose_professional', 'passo: ' + passo());
@@ -181,6 +195,55 @@ module.exports = async function run() {
     check('entrega mantém scheduledAt nulo (comportamento original)',
       entrega && entrega.scheduledAt === null, 'scheduledAt: ' + entrega?.scheduledAt);
     check('entrega guarda o endereço', !!entrega?.customerAddress, 'endereco vazio');
+
+    const LID = '999999@lid';
+    conversations.set(`${store.id}:${LID}`, {
+      step: 'ask_notes', productId: servico.id, productName: 'Corte', productPrice: 50,
+      data: { type: 'delivery', name: 'Contato LID', address: 'Endereço sintético' },
+    });
+    await handleIncomingMessage(store.id, socket, LID, '1', { key: {} });
+    const lidOrder = await prisma.order.findFirst({ where: { storeId: store.id, customerName: 'Contato LID' } });
+    check('pedido preserva LID quando telefone é desconhecido', lidOrder?.customerPhone === LID);
+    const historyBefore = enviadas.length;
+    await handleIncomingMessage(store.id, socket, LID, '3', { key: {} });
+    check('histórico encontra pedido LID', enviadas.slice(historyBefore).join(' ').includes(`Pedido #${lidOrder?.id}`));
+    const countBeforePriceChange = await prisma.order.count({ where: { storeId: store.id } });
+    conversations.set(`${store.id}:${TEL2}`, {
+      step: 'ask_notes', productId: servico.id, productName: 'Corte', productPrice: 50,
+      data: { type: 'delivery', name: 'Valor antigo', address: 'Endereço sintético' },
+    });
+    await prisma.product.update({ where: { id: servico.id }, data: { price: 75 } });
+    await falar2('1');
+    check('preço alterado pede nova escolha sem criar pedido antigo',
+      await prisma.order.count({ where: { storeId: store.id } }) === countBeforePriceChange &&
+      conversations.get(`${store.id}:${TEL2}`)?.step === 'choose_product');
+    conversations.set(`${store.id}:${TEL2}`, {
+      step: 'ask_notes', productId: servico.id, productName: 'Corte', productPrice: 75,
+      data: { type: 'delivery', name: 'Produto inativo', address: 'Endereço sintético' },
+    });
+    await prisma.product.update({ where: { id: servico.id }, data: { active: false } });
+    await falar2('1');
+    check('produto desativado não cria pedido', await prisma.order.count({ where: { storeId: store.id } }) === countBeforePriceChange);
+
+    await prisma.whatsAppConversation.upsert({
+      where: { id: `baileys:${store.id}:${TELEFONE}` },
+      create: { id: `baileys:${store.id}:${TELEFONE}`, state: JSON.stringify({ step: 'ask_name', lastActivity: Date.now() - 3600000 }) },
+      update: { state: JSON.stringify({ step: 'ask_name', lastActivity: Date.now() - 3600000 }), updatedAt: new Date(Date.now() - 3600000) },
+    });
+    await prisma.whatsAppConversation.update({ where: { id: `baileys:${store.id}:${TELEFONE}` }, data: { updatedAt: new Date(Date.now() - 3600000) } });
+    conversations.clear(); await falar('Contato novo');
+    check('conversa expirada não recupera coleta antiga', passo() === undefined);
+    const cloudKey = `${store.id}:551199990000`;
+    await prisma.whatsAppConversation.create({ data: { id: cloudKey, state: '{}' } });
+    await prisma.whatsAppConversation.create({ data: { id: `baileys:${store.id}:551188880000@s.whatsapp.net`, state: '{}' } });
+    await __test.clearConversationState(store.id);
+    check('limpeza Baileys preserva conversa oficial',
+      !!await prisma.whatsAppConversation.findUnique({ where: { id: cloudKey } }) &&
+      await prisma.whatsAppConversation.count({ where: { id: { startsWith: `baileys:${store.id}:` } } }) === 0);
+    await prisma.store.update({ where: { id: store.id }, data: { officialPhoneId: 'official-synthetic', officialStatus: 'reauthorization_required' } });
+    const beforeHandoff = enviadas.length; await falar('oi');
+    check('integração oficial configurada impede resposta Baileys mesmo em reautorização', enviadas.length === beforeHandoff);
+    await prisma.store.update({ where: { id: store.id }, data: { officialPhoneId: null } });
 
     console.log('\n-- Robustez --');
     check('mensagem vazia não derruba o handler',

@@ -10,15 +10,26 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import { VerifyEmailPage, VerifyEmailPendingPage } from './pages/VerifyEmailPage';
 import LegalPage from './pages/LegalPage';
 
+function SessionRecovery() {
+  const { sessionError, restoreSession, logout } = useAuth();
+  return <main className="auth-page"><div className="auth-card">
+    <h1>Conexão interrompida</h1><p role="alert">{sessionError}</p>
+    <button className="btn btn-primary" onClick={restoreSession}>Tentar novamente</button>
+    <button className="btn btn-secondary" onClick={logout}>Sair da conta</button>
+  </div></main>;
+}
+
 function PrivateRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionError } = useAuth();
   if (loading) return <div className="loading-spinner" />;
+  if (sessionError) return <SessionRecovery />;
   return user ? children : <Navigate to="/login" />;
 }
 
 function GuestRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionError } = useAuth();
   if (loading) return <div className="loading-spinner" />;
+  if (sessionError) return <SessionRecovery />;
   return !user ? children : <Navigate to="/dashboard" />;
 }
 

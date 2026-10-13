@@ -191,10 +191,20 @@ module.exports = async function run() {
       check('senha errada não exclui', r.status === 400, 'status: ' + r.status);
       check('conta continua lá', !!(await prisma.user.findUnique({ where: { id: h.user.id } })), 'sumiu');
 
+      await prisma.whatsAppInbox.create({ data: { id: `delete-inbox-${h.store.id}`, storeId: h.store.id, phone: '5511999990000', payload: '{}' } });
+      await prisma.whatsAppDelivery.create({ data: { id: `delete-delivery-${h.store.id}`, storeId: h.store.id, phone: '5511999990000' } });
+      await prisma.whatsAppSignupState.create({ data: { id: `delete-signup-${h.store.id}`, storeId: h.store.id, expiresAt: new Date(Date.now() + 60000) } });
+      await prisma.whatsAppConversation.create({ data: { id: `${h.store.id}:5511999990000`, state: '{}' } });
+
       r = await req('DELETE', '/auth/account', h.user, { password: 'senha-forte-1' });
       check('senha certa exclui', r.status === 200, 'status: ' + r.status + ' ' + JSON.stringify(r.body));
       check('usuário apagado', !(await prisma.user.findUnique({ where: { id: h.user.id } })), 'ainda existe');
       check('loja apagada junto', !(await prisma.store.findUnique({ where: { id: h.store.id } })), 'ainda existe');
+      check('exclusão remove mensagens e autorizações oficiais',
+        await prisma.whatsAppInbox.count({ where: { storeId: h.store.id } }) === 0 &&
+        await prisma.whatsAppDelivery.count({ where: { storeId: h.store.id } }) === 0 &&
+        await prisma.whatsAppSignupState.count({ where: { storeId: h.store.id } }) === 0 &&
+        !(await prisma.whatsAppConversation.findUnique({ where: { id: `${h.store.id}:5511999990000` } })), 'dados WhatsApp órfãos');
 
       const me = await req('GET', '/auth/me', a.user);
       check('/me não expõe o token de compra', me.body?.store && !('playPurchaseToken' in me.body.store), JSON.stringify(Object.keys(me.body?.store || {})));

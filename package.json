@@ -5,7 +5,6 @@
   "scripts": {
     "install:all": "cd client && npm install && cd ../server && npm install",
     "build": "cd client && npm run build",
-    "start": "cd server && node src/index.js",
-    "postinstall": "npm run install:all && npm run build && cd server && npx prisma db push"
+    "start": "cd server && node src/index.js"
   }
 }

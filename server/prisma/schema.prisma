@@ -56,6 +56,10 @@ model Store {
   professionals Professional[]
   blockedSlots  BlockedSlot[]
   clients       Client[]
+  whatsappSignupStates WhatsAppSignupState[]
+  whatsappInbox WhatsAppInbox[]
+  whatsappDeliveries WhatsAppDelivery[]
+  whatsappConversations WhatsAppConversation[]
 
   // Chatbot configuration
   botEnabled      Boolean  @default(false)
@@ -64,6 +68,61 @@ model Store {
   botPhoneId      String?  // WhatsApp Business Phone Number ID
   botToken        String?  // WhatsApp Cloud API Token
   botWebhookToken String?  // Token de verificação do webhook
+  officialWabaId String?
+  officialPhoneId String? @unique
+  officialToken String?
+  officialTokenExpiresAt DateTime?
+  officialStatus String @default("disconnected")
+  officialDisplayPhone String?
+  officialVerifiedName String?
+  officialLastError String?
+}
+
+model WhatsAppSignupState {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model WhatsAppInbox {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone String
+  payload String
+  status String @default("pending")
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, availableAt])
+}
+
+model WhatsAppConversation {
+  id String @id
+  storeId Int?
+  store Store? @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  state String
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppDelivery {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone String
+  status String @default("accepted")
+  error String?
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppWorkerLease {
+  id String @id
+  owner String
+  expiresAt DateTime
 }
 
 model Category {

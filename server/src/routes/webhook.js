@@ -20,7 +20,7 @@ const router = express.Router();
 // Retorna: true (válida) | false (inválida/ausente) | 'skip' (META_APP_SECRET não configurado)
 function verifyMetaSignature(req) {
   const secret = process.env.META_APP_SECRET;
-  if (!secret) return 'skip';
+  if (!secret) return false;
 
   const signature = req.headers['x-hub-signature-256'];
   if (!signature || !req.rawBody) return false;
@@ -45,6 +45,10 @@ function getConvoKey(storeId, phone) {
 }
 
 // WhatsApp Cloud API webhook verification
+router.get('/meta', (req, res) => {
+  if (process.env.META_WEBHOOK_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === process.env.META_WEBHOOK_VERIFY_TOKEN) return res.status(200).send(req.query['hub.challenge']);
+  res.sendStatus(403);
+});
 router.get('/:storeId', async (req, res) => {
   try {
     const storeId = parseInt(req.params.storeId);
@@ -76,44 +80,59 @@ router.get('/:storeId', async (req, res) => {
   }
 });
 
-// Receive WhatsApp messages
-router.post('/:storeId', async (req, res) => {
+// Global Meta callback routes each message by verified phone ID, never a browser/store path.
+router.post('/meta', async (req, res) => {
+  if (!verifyMetaSignature(req)) return res.sendStatus(401);
   try {
-    const storeId = parseInt(req.params.storeId);
-    if (isNaN(storeId)) {
-      return res.sendStatus(404);
+    for (const entry of req.body?.entry || []) for (const change of entry.changes || []) {
+      if (change.field && change.field !== 'messages') continue;
+      const value = change.value || {};
+      const phoneId = value.metadata?.phone_number_id;
+      if (!phoneId) continue;
+      const store = await prisma.store.findUnique({ where: { officialPhoneId: String(phoneId) } });
+      if (!store || String(entry.id) !== store.officialWabaId) continue;
+      for (const status of value.statuses || []) {
+        if (!status.id || !['sent', 'delivered', 'read', 'failed'].includes(status.status)) continue;
+        await prisma.whatsAppDelivery.updateMany({ where: { id: status.id, storeId: store.id, status: { in: { sent: ['accepted'], delivered: ['accepted', 'sent'], read: ['accepted', 'sent', 'delivered'], failed: ['accepted', 'sent'] }[status.status] } }, data: { status: status.status, error: status.status === 'failed' ? JSON.stringify(status.errors || []).slice(0, 1000) : null } });
+      }
+      // Coexistence echoes/history are never passed to the bot (prevents self-replies).
+      if (store.officialStatus !== 'connected') continue;
+      for (const message of value.messages || []) {
+        if (message.echo || message.is_echo || !message.id || !/^\d{8,15}$/.test(message.from || '') || message.from === store.officialDisplayPhone?.replace(/\D/g, '')) continue;
+        try { await prisma.whatsAppInbox.create({ data: { id: `${store.id}:${message.id}`, storeId: store.id, phone: message.from, payload: JSON.stringify({ ...message, _phoneId: store.officialPhoneId, _wabaId: store.officialWabaId, _connectionKey: crypto.createHash('sha256').update(store.officialToken).digest('hex') }) } }); }
+        catch (err) { if (err.code !== 'P2002') throw err; }
+      }
     }
-
-    // Assinatura inválida → rejeita ANTES de qualquer processamento
-    if (verifyMetaSignature(req) === false) {
-      return res.sendStatus(401);
-    }
-
-    // Always respond 200 immediately (WhatsApp requirement)
+    // Acknowledge only after durable commit; database failures cause Meta redelivery.
     res.sendStatus(200);
-
-    const store = await prisma.store.findUnique({
-      where: { id: storeId },
-      include: {
-        categories: { orderBy: { order: 'asc' } },
-        products: {
-          where: { active: true },
-          orderBy: [{ order: 'asc' }],
-          include: { category: true },
-        },
-      },
-    });
-
-    if (!store || !store.botEnabled || !store.botToken || !store.botPhoneId) {
-      return;
+    drainInbox().catch(err => console.error('[WhatsApp inbox]', err.message));
+  } catch (err) { res.sendStatus(503); }
+});
+router.post('/:storeId', async (req, res) => {
+  if (!verifyMetaSignature(req)) return res.sendStatus(401);
+  try {
+    const storeId = Number(req.params.storeId);
+    if (!Number.isSafeInteger(storeId) || storeId <= 0) return res.sendStatus(404);
+    const store = await loadStore(storeId);
+    if (!store || store.officialPhoneId) return res.sendStatus(404);
+    for (const entry of req.body?.entry || []) for (const change of entry.changes || []) {
+      if (String(change.value?.metadata?.phone_number_id) !== store.botPhoneId) continue;
+      for (const message of change.value?.messages || []) await processMessage(store, message);
     }
-
-    const entry = req.body?.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const message = changes?.value?.messages?.[0];
-
-    if (!message) return;
-
+    res.sendStatus(200);
+  } catch (err) { res.sendStatus(503); }
+});
+function loadStore(id) {
+  return prisma.store.findUnique({ where: { id }, include: { categories: { orderBy: { order: 'asc' } }, products: { where: { active: true }, orderBy: { order: 'asc' }, include: { category: true } } } });
+}
+async function processMessage(store, message) {
+  if (!/^\d{8,15}$/.test(message.from || '')) return;
+  if (!store.active || !store.botEnabled) return;
+  if (!require('../middleware/premium').isEligible(store)) return;
+  if (!['text', 'interactive', 'button'].includes(message.type)) {
+    await sendWhatsAppMessage(store, message.from, { type: 'text', text: { body: 'Por enquanto consigo atender por texto. Digite sua mensagem ou escolha uma opção do menu.' } });
+    return;
+  }
     const from = message.from;
     const msgBody = message.text?.body?.trim() || '';
     const msgLower = msgBody.toLowerCase();
@@ -169,10 +188,72 @@ router.post('/:storeId', async (req, res) => {
     } else {
       await sendGreeting(store, from);
     }
-  } catch (error) {
-    console.error('Webhook error:', error);
+}
+let draining = false;
+const workerOwner = crypto.randomBytes(16).toString('hex');
+async function acquireWorkerLease() {
+  const expiresAt = new Date(Date.now() + 5 * 60000);
+  const existing = await prisma.whatsAppWorkerLease.updateMany({ where: { id: 'inbox', OR: [{ expiresAt: { lt: new Date() } }, { owner: workerOwner }] }, data: { owner: workerOwner, expiresAt } });
+  if (existing.count) return true;
+  try { await prisma.whatsAppWorkerLease.create({ data: { id: 'inbox', owner: workerOwner, expiresAt } }); return true; }
+  catch (err) { if (err.code === 'P2002') return false; throw err; }
+}
+async function drainInbox() {
+  if (draining) return;
+  draining = true;
+  try {
+    if (!await acquireWorkerLease()) return;
+    while (true) {
+      if (!await acquireWorkerLease()) break;
+      const event = await prisma.whatsAppInbox.findFirst({ where: { status: 'pending', availableAt: { lte: new Date() } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+      if (!event) break;
+      const claimed = await prisma.whatsAppInbox.updateMany({ where: { id: event.id, status: 'pending' }, data: { status: 'processing', attempts: { increment: 1 } } });
+      if (!claimed.count) continue;
+      const key = getConvoKey(event.storeId, event.phone);
+      try {
+        const saved = await prisma.whatsAppConversation.findUnique({ where: { id: key } });
+        if (saved && Date.now() - saved.updatedAt.getTime() < 24 * 60 * 60000) conversations.set(key, JSON.parse(saved.state));
+        else conversations.delete(key);
+        const store = await loadStore(event.storeId);
+        const message = JSON.parse(event.payload);
+        const identityMatches = store?.officialPhoneId === message._phoneId && store?.officialWabaId === message._wabaId && store?.officialToken && crypto.createHash('sha256').update(store.officialToken).digest('hex') === message._connectionKey;
+        if (store?.officialStatus === 'connected' && identityMatches) {
+          await processMessage(store, message);
+          if (store._sendFailure) throw store._sendFailure;
+        }
+        await persistEvent(event, key, 'done', null);
+      } catch (err) {
+        if (!await prisma.store.findUnique({ where: { id: event.storeId } })) continue;
+        // Do not blindly retry an ambiguous Graph timeout: acceptance may have occurred.
+        await persistEvent(event, key, 'failed', String(err.message).slice(0, 500));
+        await prisma.store.updateMany({ where: { id: event.storeId }, data: { officialLastError: 'Falha no atendimento. Verifique a conexão oficial e os eventos pendentes.' } });
+      }
+    }
+  } finally {
+    await prisma.whatsAppWorkerLease.deleteMany({ where: { id: 'inbox', owner: workerOwner } }).catch(() => {});
+    draining = false;
   }
-});
+}
+async function persistEvent(event, key, status, lastError) {
+  await prisma.$transaction(async tx => {
+    const current = await tx.store.findUnique({ where: { id: event.storeId } });
+    if (!current) return;
+    const source = JSON.parse(event.payload);
+    const unchanged = current.officialPhoneId === source._phoneId && current.officialToken && crypto.createHash('sha256').update(current.officialToken).digest('hex') === source._connectionKey;
+    if (unchanged) {
+      const state = conversations.get(key);
+      if (state) await tx.whatsAppConversation.upsert({ where: { id: key }, create: { id: key, storeId: event.storeId, state: JSON.stringify(state) }, update: { storeId: event.storeId, state: JSON.stringify(state) } });
+      else await tx.whatsAppConversation.deleteMany({ where: { id: key } });
+    }
+    await tx.whatsAppInbox.updateMany({ where: { id: event.id, status: 'processing' }, data: { status: unchanged ? status : 'done', lastError: unchanged ? lastError : 'Conexão substituída ou desconectada' } });
+  });
+}
+async function startInboxWorker() {
+  // Interrupted side effects are ambiguous: retain for operator review, not duplicate send/order.
+  await prisma.whatsAppInbox.updateMany({ where: { status: 'processing', updatedAt: { lt: new Date(Date.now() - 5 * 60000) } }, data: { status: 'failed', lastError: 'Processamento interrompido; conferir envio/pedido antes de repetir.' } });
+  await drainInbox();
+  return setInterval(() => drainInbox().catch(err => console.error('[WhatsApp inbox]', err.message)), 5000).unref();
+}
 
 // ===== ORDER CONVERSATION FLOW =====
 
@@ -250,7 +331,7 @@ async function handleConversationFlow(store, from, convoKey, convo, msgBody, rep
           convo.data.type = 'schedule';
           conversations.set(convoKey, convo);
           await startScheduleFlow(store, from, convoKey, convo);
-        } else {
+        } else if (/^(entrega|endereço|endereco|produto|2)$/i.test(msgBody.trim())) {
           convo.step = 'ask_address';
           convo.data.type = 'delivery';
           conversations.set(convoKey, convo);
@@ -258,6 +339,8 @@ async function handleConversationFlow(store, from, convoKey, convo, msgBody, rep
             type: 'text',
             text: { body: `📍 *Qual é o endereço de entrega?*` },
           });
+        } else {
+          await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'Escolha Agendar Horário ou Com Endereço para continuar.' } });
         }
       }
       break;
@@ -425,6 +508,7 @@ async function handleConversationFlow(store, from, convoKey, convo, msgBody, rep
 }
 
 async function confirmAndSaveOrder(store, from, convoKey, convo) {
+  let orderSaved = false;
   const isSchedule = convo.data.type === 'schedule' && !!convo.data.date && !!convo.data.time;
 
   try {
@@ -434,6 +518,15 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
     // a confirmação o cliente digita as observações, e nesse intervalo outra
     // pessoa (ou o painel) pode ter pegado o slot.
     const order = await withStoreLock(store.id, async () => {
+      const current = await prisma.store.findUnique({ where: { id: store.id } });
+      if (!current?.active || !current.botEnabled || !require('../middleware/premium').isEligible(current) || current.officialPhoneId !== store.officialPhoneId || current.officialToken !== store.officialToken) throw new Error('Atendimento interrompido; loja ou conexão mudou');
+      const product = await prisma.product.findFirst({ where: { id: convo.productId, storeId: store.id, active: true } });
+      if (!product) throw new Error('Produto indisponível. Reinicie o pedido.');
+      if (product.price !== convo.productPrice) {
+        conversations.delete(convoKey);
+        await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'O preço deste produto foi atualizado. Reinicie o pedido para conferir o novo valor.' } });
+        return undefined;
+      }
       if (isSchedule) {
         const slots = await getAvailableSlots(
           prisma, store.id, convo.data.date, convo.productId, convo.data.professionalId ?? null,
@@ -459,6 +552,7 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
       });
     });
 
+    if (order === undefined) return;
     if (!order) {
       convo.data.time = null;
       conversations.set(convoKey, convo);
@@ -470,6 +564,8 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
       return;
     }
 
+    orderSaved = true;
+    conversations.delete(convoKey);
     // Alimenta a tela "Clientes" do painel
     await registrarCliente(prisma, store.id, convo.data.name, from);
 
@@ -507,6 +603,7 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
   } catch (error) {
     console.error('Error saving order:', error);
     conversations.delete(convoKey);
+    if (orderSaved) throw error;
     await sendWhatsAppMessage(store, from, {
       type: 'text',
       text: { body: 'Desculpe, houve um erro ao registrar seu pedido. Tente novamente.' },
@@ -738,29 +835,8 @@ async function sendTimeOptions(store, to, convoKey, convo, options = {}) {
 // ===== MENU FUNCTIONS =====
 
 async function sendWhatsAppMessage(store, to, payload) {
-  const url = `https://graph.facebook.com/v21.0/${store.botPhoneId}/messages`;
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${store.botToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        ...payload,
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      console.error('WhatsApp API error:', JSON.stringify(err));
-    }
-  } catch (error) {
-    console.error('Failed to send WhatsApp message:', error.message);
-  }
+  try { return await require('../services/officialWhatsApp').send(store, to, payload, { automation: true }); }
+  catch (err) { store._sendFailure = err; throw err; }
 }
 
 async function sendGreeting(store, to) {
@@ -995,4 +1071,5 @@ async function sendCustomerOrders(store, from) {
   }
 }
 
+router.startInboxWorker = startInboxWorker;
 module.exports = router;

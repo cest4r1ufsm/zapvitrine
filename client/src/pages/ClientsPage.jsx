@@ -22,13 +22,17 @@ function formatDate(str) {
 function HistoryModal({ client, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     api.get(`/clients/${client.phone}/history`)
-      .then(data => setData(data))
-      .catch(() => setData({ orders: [] }))
-      .finally(() => setLoading(false));
-  }, [client.phone]);
+      .then(data => { if (!cancelled) setData(data); })
+      .catch(() => { if (!cancelled) setError('Não foi possível carregar o histórico.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [client.phone, retry]);
 
   return (
     <div style={modal.overlay} onClick={onClose}>
@@ -43,7 +47,9 @@ function HistoryModal({ client, onClose }) {
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Carregando...</div>
-        ) : data.orders.length === 0 ? (
+        ) : error ? (
+          <div style={{ padding: 24 }} role="alert"><p>{error}</p><button className="btn btn-secondary" onClick={() => { setLoading(true); setError(''); setRetry(n => n + 1); }}>Tentar novamente</button></div>
+        ) : !data?.orders?.length ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Nenhum agendamento encontrado.</div>
         ) : (
           <div style={modal.list}>

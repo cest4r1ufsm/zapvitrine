@@ -11,8 +11,10 @@ import OnboardingModal, { useOnboarding, STORAGE_KEY as ONBOARDING_KEY } from '.
 import PageGuide from '../components/PageGuide';
 import UIIcon from '../components/UIIcon';
 import WhatsAppConnection from '../components/WhatsAppConnection';
+import OfficialWhatsAppConnection from '../components/OfficialWhatsAppConnection';
 import { btnGlass } from '../styles/buttons';
 import { panel } from '../styles/surfaces';
+import { hasPremiumAccess } from '../services/entitlement';
 
 function Sidebar({ open, onClose }) {
   const { user, store, logout } = useAuth();
@@ -873,43 +875,57 @@ function AdminPage() {
 }
 
 function ChatbotPage() {
-  const { store } = useAuth();
+  const { store, refreshStore } = useAuth();
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [products, setProducts] = useState([]);
+  const [retry, setRetry] = useState(0);
   const [waStatus, setWaStatus] = useState({ status: 'disconnected', qr: null, phone: null, error: null });
+  const [officialConnection, setOfficialConnection] = useState(null);
 
   useEffect(() => {
-    Promise.all([storeAPI.getChatbot(), productsAPI.list(), whatsappAPI.status()])
+    let cancelled = false;
+    Promise.allSettled([storeAPI.getChatbot(), productsAPI.list(), whatsappAPI.status()])
       .then(([chatbot, prods, status]) => {
-        setConfig(chatbot);
-        setProducts(prods);
-        setWaStatus(status);
+        if (cancelled) return;
+        if (chatbot.status === 'fulfilled') setConfig(chatbot.value);
+        if (prods.status === 'fulfilled') setProducts(prods.value);
+        if (status.status === 'fulfilled') setWaStatus(status.value);
+        const failed = [chatbot, prods, status].filter(result => result.status === 'rejected');
+        setError(failed.length ? 'Parte das configurações não pôde ser carregada. Tente novamente.' : '');
       })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [retry]);
 
-  const handleWhatsAppStatus = useCallback((next, previous) => {
+  const handleWhatsAppStatus = useCallback((next) => {
     setWaStatus(next);
-    if (next.status === 'connected' && previous.status !== 'connected') {
-      setConfig(prev => ({ ...prev, botEnabled: true }));
-    } else if (next.status === 'disconnected') {
-      setConfig(prev => ({ ...prev, botEnabled: false }));
-    }
+    void storeAPI.getChatbot().then(updated => setConfig(updated)).catch(() => {});
   }, []);
 
-  const handleSave = async () => {
+  const handleOfficialStatus = useCallback((next) => {
+    setOfficialConnection(next || null);
+    void storeAPI.getChatbot().then(updated => setConfig(updated)).catch(() => {});
+  }, []);
+
+  const handleSave = async (botEnabled) => {
+    if (saving || !config) return;
     setSaving(true);
     setError('');
     setSuccess('');
     try {
-      const updated = await storeAPI.updateChatbot(config);
-      setConfig(updated);
+      const payload = typeof botEnabled === 'boolean' ? { botEnabled } : {
+        botEnabled: config.botEnabled,
+        botGreeting: config.botGreeting,
+        botAwayMessage: config.botAwayMessage,
+      };
+      const updated = await storeAPI.updateChatbot(payload);
+      setConfig(prev => ({ ...prev, ...updated }));
       setSuccess('Chatbot atualizado com sucesso!');
+      void refreshStore().catch(() => {});
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message);
@@ -921,7 +937,7 @@ function ChatbotPage() {
   if (loading) return <div className="loading-spinner" />;
 
   const activeProducts = products.filter(p => p.active);
-  const isConnected = waStatus.status === 'connected';
+  const isConnected = officialConnection?.connected || waStatus.status === 'connected';
 
   return (
     <div>
@@ -932,7 +948,7 @@ function ChatbotPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert">{error} <button type="button" className="btn btn-secondary" onClick={() => setRetry(n => n + 1)}>Tentar novamente</button></div>}
       {success && <div className="alert alert-success">{success}</div>}
 
       <div className="settings-grid">
@@ -940,19 +956,24 @@ function ChatbotPage() {
         <div className="settings-section">
           <h3>Conexão com WhatsApp</h3>
 
-          <WhatsAppConnection initialStatus={waStatus} onStatusChange={handleWhatsAppStatus} />
+          <OfficialWhatsAppConnection onStatusChange={handleOfficialStatus} />
+          {!officialConnection?.connected && <details>
+            <summary style={{ cursor: 'pointer', padding: '12px 0', minHeight: 44 }}>Conexão por aparelho vinculado</summary>
+            <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>Use esta opção enquanto a conexão oficial é habilitada. A confirmação acontece no WhatsApp.</p>
+            <WhatsAppConnection initialStatus={waStatus} onStatusChange={handleWhatsAppStatus} />
+          </details>}
 
-          {isConnected && (
+          {isConnected && config && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: `1px solid ${config?.botEnabled ? 'var(--success)' : 'var(--border)'}` }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1 }}>
-                  <div style={{ width: '48px', height: '28px', borderRadius: '14px', background: config?.botEnabled ? 'var(--success)' : 'var(--bg-input)', transition: 'var(--transition)', position: 'relative', cursor: 'pointer' }}
-                    onClick={() => setConfig({ ...config, botEnabled: !config.botEnabled })}>
+                  <button type="button" role="switch" aria-checked={!!config.botEnabled} aria-label="Atendimento automático" disabled={saving} style={{ width: '48px', height: '28px', padding: 0, border: 0, borderRadius: '14px', background: config?.botEnabled ? 'var(--success)' : 'var(--bg-input)', transition: 'var(--transition)', position: 'relative', cursor: 'pointer' }}
+                    onClick={() => handleSave(!config.botEnabled)}>
                     <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: config?.botEnabled ? '23px' : '3px', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }} />
-                  </div>
+                  </button>
                   <div>
                     <div style={{ fontWeight: 600 }}>{config?.botEnabled ? 'Chatbot ativado' : 'Chatbot desativado'}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{saving ? 'Salvando alteração...' : config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
                   </div>
                 </label>
               </div>
@@ -1074,7 +1095,8 @@ function OrdersPage() {
 
   const changeStatus = async (id, status) => {
     try {
-      await ordersAPI.updateStatus(id, status);
+      const result = await ordersAPI.updateStatus(id, status);
+      setError(result.notification?.status === 'failed' ? 'Status salvo, mas a mensagem não foi enviada. Avise o cliente pelo WhatsApp.' : '');
       loadData();
     } catch (err) {
       setError(err.message);
@@ -1284,9 +1306,7 @@ function ChatbotPaywall() {
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { store } = useAuth();
-  const isPremium =
-    store?.subscriptionStatus === 'active' ||
-    (store?.trialEndsAt && new Date(store.trialEndsAt) > new Date());
+  const isPremium = hasPremiumAccess(store);
 
   return (
     <div className="dashboard agt-app">

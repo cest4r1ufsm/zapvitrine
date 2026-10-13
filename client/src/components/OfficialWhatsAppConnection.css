@@ -1,0 +1,11 @@
+.official-wa { min-width: 0; margin-block-end: 24px; color: var(--text-primary); }
+.official-wa h4 { margin: 0 0 12px; font-size: 1.1rem; }
+.official-wa p, .official-wa ol { margin-block: 0 16px; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
+.official-wa ol { padding-inline-start: 22px; }
+.official-wa li + li { margin-block-start: 8px; }
+.official-wa .btn { width: 100%; min-height: 44px; white-space: normal; }
+.official-wa .official-wa-connected { font-weight: 600; color: var(--success); }
+.official-wa .official-wa-account { font-weight: 600; }
+.official-wa .official-wa-help { font-size: .875rem; margin-block-start: 12px; }
+.official-wa-refresh { display: block; padding: 10px 0; min-height: 44px; color: var(--primary); background: none; border: 0; font: inherit; text-decoration: underline; cursor: pointer; }
+.official-wa :is(button, a):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
