@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { hasPaidAccess, hasPremiumAccess } from '../src/services/entitlement.js';
+import { localClockDate } from '../src/services/localClock.js';
+
+test('national agenda derives the local day from the establishment timezone', () => {
+  const instant = new Date('2026-10-15T03:30:00Z');
+  assert.equal(localClockDate('America/Sao_Paulo', instant).toISOString(), '2026-10-15T00:30:00.000Z');
+  assert.equal(localClockDate('America/Manaus', instant).toISOString(), '2026-10-14T23:30:00.000Z');
+  assert.equal(localClockDate('America/Rio_Branco', instant).toISOString(), '2026-10-14T22:30:00.000Z');
+  assert.equal(localClockDate('America/Noronha', instant).toISOString(), '2026-10-15T01:30:00.000Z');
+});
 
 test('paid access distinguishes Play validity, Stripe and trial', () => {
   const now = Date.parse('2026-10-13T12:00:00Z');

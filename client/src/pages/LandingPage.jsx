@@ -302,6 +302,7 @@ export default function LandingPage() {
       {/* ============ FLOATING PILL NAV ============ */}
       <nav className={`vl-nav ${scrolled ? 'scrolled' : ''}`}>
         <div className="vl-nav-left">
+          <Link to="/explorar">Encontrar salões</Link>
           <a href="#features">Recursos</a>
           <a href="#process">Como funciona</a>
           <a href="#categories">Para quem</a>
@@ -545,7 +546,7 @@ export default function LandingPage() {
       <footer className="vl-footer">
         <div className="vl-footer-grid">
           <div className="vl-footer-brand">
-            <img src="/agtgestor-logo.svg" alt="AGTGestor" />
+            <img src="/agtgestor-logo-reverse.svg" alt="AGTGestor" />
             <p>Agenda profissional com atendimento automático no WhatsApp.</p>
           </div>
           <div className="vl-footer-col">

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const multer = require('multer');
 const path = require('path');
 require('dotenv').config();
+require('./lib/productionConfig').validateProductionConfig();
 
 // ── Guard de inicialização: nunca subir com JWT_SECRET ausente/fraco/padrão ──
 const OLD_DEFAULT_JWT_SECRET = 'zapvitrine-secret-key-change-in-production-2026';
@@ -51,19 +52,29 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Atrás de 1 proxy reverso (nginx no VPS) — necessário para o rate limit ver o IP real
-app.set('trust proxy', 1);
+// Production traffic must only reach the service through the configured ALB.
+app.set('trust proxy', process.env.TRUST_PROXY_HOPS ? Number(process.env.TRUST_PROXY_HOPS) : 1);
+app.use((req, res, next) => {
+  req.requestId = require('node:crypto').randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 // Headers de segurança. CSP compatível com a SPA (React inline styles, WebGL, imagens locais)
 app.use(
   helmet({
+    // Mapbox URL restrictions require the requesting origin, never its path.
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", 'https://connect.facebook.net'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'https://www.facebook.com', 'https://graph.facebook.com'],
-        frameSrc: ['https://www.facebook.com', 'https://web.facebook.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', ...(process.env.MEDIA_PUBLIC_URL ? [new URL(process.env.MEDIA_PUBLIC_URL).origin] : [])],
+        connectSrc: ["'self'", 'https://www.facebook.com', 'https://graph.facebook.com', 'https://api.mapbox.com', 'https://events.mapbox.com'],
+        workerSrc: ["'self'", 'blob:'],
+        frameSrc: ['https://www.facebook.com', 'https://web.facebook.com', 'https://www.google.com'],
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
@@ -76,12 +87,9 @@ app.use(
 // CORS restrito: produção + origens locais usadas pelo Vite neste workspace.
 const allowedOrigins = [
   process.env.APP_URL,
-  'http://localhost:5007',
-  'http://127.0.0.1:5007',
-  'http://localhost:5008',
-  'http://127.0.0.1:5008',
+  ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5007', 'http://127.0.0.1:5007', 'http://localhost:5008', 'http://127.0.0.1:5008']),
 ].filter(Boolean);
-app.use(cors({ origin: allowedOrigins }));
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Webhook da Stripe TEM que vir ANTES do express.json() para não converter o Buffer para Object
 app.use('/api/webhook/stripe', stripeWebhookRoutes);
@@ -112,6 +120,7 @@ app.use('/api/store', storeRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/v1', require('./routes/directory'));
 app.use('/api/admin', adminRoutes);
 app.use('/api/webhook', webhookRoutes); // Webhook da WhatsApp Cloud API (Meta)
 app.use('/api/orders', ordersRoutes);
@@ -197,8 +206,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Erro interno do servidor' });
 });
 
-app.listen(PORT, () => {
+Promise.all([require('./lib/sharedLimits').connect(), require('./lib/databaseReadiness').verifyDatabase(prisma)]).then(() => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 AGTgestor API rodando em http://localhost:${PORT}`);
+  if (process.env.RUN_BACKGROUND_JOBS === 'false') return;
   webhookRoutes.startInboxWorker().catch(err => console.error('[WhatsApp inbox startup]', err.message));
   // Restore WhatsApp sessions
   restoreSessions().catch(err => console.error('Error restoring sessions:', err));
@@ -209,3 +220,11 @@ app.listen(PORT, () => {
     setInterval(check, 30 * 60 * 1000).unref();
   }
 });
+for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
+  server.close(async () => {
+    await Promise.allSettled([prisma.$disconnect(), require('./lib/sharedLimits').close()]);
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 25000).unref();
+});
+}).catch(() => { console.error('Falha ao iniciar dependências compartilhadas; verifique configuração, permissões e migrations'); process.exit(1); });

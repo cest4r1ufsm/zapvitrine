@@ -209,6 +209,29 @@ module.exports = async function run() {
       entrega && entrega.scheduledAt === null, 'scheduledAt: ' + entrega?.scheduledAt);
     check('entrega guarda o endereço', !!entrega?.customerAddress, 'endereco vazio');
 
+    console.log('\n-- Catálogo com mais de dez opções --');
+    const paginationCategories = [];
+    for (let index = 0; index < 12; index++) paginationCategories.push(await prisma.category.create({ data: { storeId: STORE.id, name: `Categoria ${index}`, order: index } }));
+    for (let index = 0; index < 12; index++) await prisma.product.create({ data: { storeId: STORE.id, categoryId: paginationCategories[0].id, name: `Produto ${index}`, price: 10, active: true } });
+    await digitar('menu'); await clicar('ver_catalogo');
+    let rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('categorias oferecem próxima página dentro do limite Meta', rows.length <= 10 && rows.some(row => row.id === 'pagecat:1'));
+    await clicar('pagecat:1');
+    rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('última categoria é acessível', rows.some(row => row.id === `cat_${paginationCategories.at(-1).id}`));
+    await clicar(`cat_${paginationCategories[0].id}`);
+    rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('produtos da categoria têm paginação', rows.some(row => row.id === `pageprod:${paginationCategories[0].id}:1`));
+    await clicar(`pageprod:${paginationCategories[0].id}:1`);
+    rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('segunda página de produtos respeita limite', rows.length <= 10 && rows.some(row => row.title === 'Produto 11'));
+    await clicar('fazer_pedido');
+    rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('lista para pedidos também oferece paginação', rows.some(row => row.id === 'pageorder:1'));
+    await clicar('pageorder:1');
+    rows = enviadas.at(-1)?.interactive?.action?.sections?.flatMap(section => section.rows) || [];
+    check('pedido permite escolher produto além dos primeiros dez', rows.some(row => row.title === 'Produto 11'));
+
     console.log('\n-- Webhook resiliente a payload malformado --');
     for (const [nome, corpo] of [
       ['corpo vazio', {}],

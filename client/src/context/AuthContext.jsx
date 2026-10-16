@@ -1,31 +1,34 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { authAPI } from '../services/api';
+import { authAPI, clearAuthState } from '../services/api';
 
 const AuthContext = createContext(null);
+function removeLegacyCredential() {
+  try { localStorage.removeItem('pedidoprontobot_token'); } catch { /* HttpOnly session remains usable when browser storage is disabled. */ }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [store, setStore] = useState(null);
   const [sessionError, setSessionError] = useState('');
   const sessionOperation = useRef(0);
-  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('pedidoprontobot_token')));
+  const [loading, setLoading] = useState(true);
 
   const restoreSession = useCallback(async () => {
-    const token = localStorage.getItem('pedidoprontobot_token');
-    if (!token) return;
+    // Remove the previous browser-readable credential during migration.
+    removeLegacyCredential();
     const operation = ++sessionOperation.current;
     setLoading(true);
     setSessionError('');
     try {
       const data = await authAPI.me();
-      if (operation !== sessionOperation.current || localStorage.getItem('pedidoprontobot_token') !== token) return;
+      if (operation !== sessionOperation.current) return;
       setUser(data.user);
       setStore(data.store);
     } catch (err) {
       if (operation !== sessionOperation.current) return;
       if (err.status === 401) {
-          localStorage.removeItem('pedidoprontobot_token');
+          removeLegacyCredential();
           setUser(null);
           setStore(null);
       } else {
@@ -40,25 +43,33 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const data = await authAPI.login({ email, password });
-    localStorage.setItem('pedidoprontobot_token', data.token);
+
     await restoreSession();
     return data;
   };
 
   // Register no longer auto-logs in — requires email verification
-  const register = async (name, email, password) => {
-    const data = await authAPI.register({ name, email, password });
+  const register = async (name, email, password, accountType = 'business') => {
+    const data = await authAPI.register({ name, email, password, accountType });
     // data = { requiresVerification: true, message: '...' }
     return data;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try { await authAPI.logout(); } catch (err) {
+      if (err.status !== 401) {
+        setSessionError('Não foi possível encerrar sua sessão. Confira a conexão e tente novamente.');
+        return false;
+      }
+    }
+    clearAuthState();
     sessionOperation.current += 1;
-    localStorage.removeItem('pedidoprontobot_token');
+    removeLegacyCredential();
     setUser(null);
     setStore(null);
     setSessionError('');
     setLoading(false);
+    return true;
   };
 
   const refreshStore = async () => {

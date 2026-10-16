@@ -99,6 +99,10 @@ module.exports = async function run() {
     r = await req('GET', '/orders');
     check('GET /orders mantem o formato {orders,total,pages}',
       r.status === 200 && Array.isArray(r.body?.orders) && typeof r.body?.total === 'number', `status ${r.status}`);
+    for (const query of ['page=abc', 'page=0', 'page=-1', 'page=999999999999999999', 'status=invalid']) {
+      const invalid = await req('GET', '/orders?' + query);
+      check('paginação/status inválido rejeitado: ' + query, invalid.status === 400, `status ${invalid.status}`);
+    }
     r = await req('GET', '/orders/stats');
     check('GET /orders/stats intacto', r.status === 200 && typeof r.body?.pending === 'number', `status ${r.status}`);
 
@@ -200,6 +204,24 @@ module.exports = async function run() {
     ]);
     check('lojas diferentes no mesmo horario nao se bloqueiam',
       rD.status === 201 && rE.status === 201, `${rD.status} / ${rE.status}`);
+
+    const F = await criarLoja('resource-assignment', true);
+    const servF = await prisma.product.create({ data: { storeId: F.s.id, name: 'S', price: 10, duration: 30 } });
+    const professionals = await Promise.all(['A', 'B'].map(name => prisma.professional.create({ data: { storeId: F.s.id, name } })));
+    const bodyF = professionalId => JSON.stringify({ productId: servF.id, professionalId, customerName: 'Synthetic', customerPhone: '11999999999', date: DATA, time: '10:00' });
+    const firstResponse = await enviar(F.token, bodyF(null));
+    const first = await firstResponse.json();
+    check('any-professional reservation assigns an actual active professional', firstResponse.status === 201 && professionals.some(p => p.id === first.professionalId), JSON.stringify(first));
+    const secondResponse = await enviar(F.token, bodyF(null));
+    const second = await secondResponse.json();
+    check('two professionals can serve the same time independently', secondResponse.status === 201 && second.professionalId !== first.professionalId && Boolean(second.professionalId), JSON.stringify(second));
+    const cancelled = await fetch(BASE + `/orders/${first.id}/status`, { method: 'PATCH', headers: h(F.token), body: JSON.stringify({ status: 'cancelled' }) });
+    check('first reservation cancels', cancelled.status === 200, String(cancelled.status));
+    const replacement = await enviar(F.token, bodyF(first.professionalId));
+    check('released professional accepts replacement', replacement.status === 201, String(replacement.status));
+    const reactivated = await fetch(BASE + `/orders/${first.id}/status`, { method: 'PATCH', headers: h(F.token), body: JSON.stringify({ status: 'confirmed' }) });
+    check('cancelled reservation cannot reactivate into an occupied slot', reactivated.status === 409, String(reactivated.status));
+    check('rejected reactivation preserves cancelled status', (await prisma.order.findUnique({ where: { id: first.id } })).status === 'cancelled', 'changed');
 
     return resumo('Regressão, isolamento e concorrência');
   } finally {

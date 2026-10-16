@@ -8,7 +8,6 @@ const path = require('path');
 const os = require('os');
 
 const SERVER_DIR = path.join(__dirname, '..');
-const DEV_DB = path.join(SERVER_DIR, 'prisma', 'dev.db');
 
 // ─── mini runner ────────────────────────────────────────────────────────────
 
@@ -41,14 +40,10 @@ function criarRunner() {
 // ─── banco descartável para os testes de rota ───────────────────────────────
 
 function criarBancoTemporario() {
-  if (!fs.existsSync(DEV_DB)) {
-    throw new Error(
-      `Banco de desenvolvimento não encontrado em ${DEV_DB}.\n` +
-      'Rode "npx prisma db push" antes de executar os testes de rota.'
-    );
-  }
+  process.env.NODE_ENV = 'test';
+  process.env.ALLOW_LEGACY_TEST_AUTH = 'true';
   const destino = path.join(os.tmpdir(), `agtgestor-test-${process.pid}-${Date.now()}.db`);
-  fs.copyFileSync(DEV_DB, destino);
+  fs.writeFileSync(destino, '');
   process.env.DATABASE_URL = 'file:' + destino.replace(/\\/g, '/');
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
   const result = require('child_process').spawnSync(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'push', '--skip-generate', '--schema', path.join(SERVER_DIR, 'prisma', 'schema.prisma')], { env: process.env, encoding: 'utf8' });

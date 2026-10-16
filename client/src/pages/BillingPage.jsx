@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../services/api';
+import { request } from '../services/api';
 import {
   isAndroidApp,
   canUsePlayBilling,
@@ -29,12 +29,7 @@ export default function BillingPage() {
   const handleSubscribe = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('pedidoprontobot_token');
-      const res = await fetch(`${API_URL}/billing/checkout`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
+      const data = await request('/billing/checkout', { method: 'POST' });
       if (data.url) {
         window.location.href = data.url;
       } else {

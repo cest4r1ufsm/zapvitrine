@@ -1,0 +1,6 @@
+.env.vps
+.env.runtime
+private/
+backups/
+*.dump
+*.log

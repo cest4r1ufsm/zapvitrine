@@ -77,6 +77,7 @@ export default function LoginPage() {
           </Link>
           <span className="auth-eyebrow">Acesse sua conta</span>
           <p>Gestão de agenda e atendimentos</p>
+          <Link to="/explorar">Encontrar salões sem entrar</Link>
         </div>
 
         <div className="auth-card">

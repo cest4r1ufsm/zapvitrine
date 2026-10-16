@@ -1,0 +1,12 @@
+Use case: product-mockup
+Asset type: transparent landing-page product visual for the AGTGestor website
+Primary request: Create one premium photorealistic modern smartphone showing the AGTGestor mobile scheduling interface. The phone is a functional product proof for a sophisticated minimal SaaS landing page, not a decorative stock mockup.
+Scene/backdrop: genuinely transparent background, no floor, no environment.
+Subject: one slim graphite-black smartphone with refined metal edges, shown mostly front-on with a very subtle three-quarter perspective. The entire device must be visible with generous transparent padding and a clean silhouette.
+Screen content: a large, readable, calm mobile interface. At the top show the exact word "AGTGestor". Below, a concise customer conversation with the name "Marina", then a clear transition into an appointment confirmation. Render only these exact Portuguese phrases where text appears: "Marina", "Quinta, 14:00", "Corte feminino", "Agendamento confirmado". Use a restrained green confirmation accent and one cobalt-blue active line. Keep the interface simple enough that these details are legible.
+Style/medium: premium studio product photography combined with realistic production-ready mobile UI; quiet, precise, minimal, sophisticated.
+Composition/framing: portrait asset; phone occupies about 84% of the image height; very slight lean, no dramatic rotation, no hands, no floating companion cards.
+Lighting/mood: soft daylight, delicate cyan edge reflection, matte graphite body, controlled highlights, understated shadow contained close to the device.
+Color palette: porcelain white screen, near-black typography, graphite device, pale daylight cyan, cobalt blue, restrained fresh green.
+Materials/textures: realistic anti-glare glass, finely brushed metal frame, subtle physical buttons, crisp pixel display.
+Constraints: transparent background; one phone only; no slogan; no extra marketing text; no price; no statistics; no emojis; no human hands; no desk; no props; no logos other than the exact AGTGestor wordmark text; no watermark; no fake browser chrome; no neon; no purple gradient; no floating-card scatter; no illegible tiny UI; do not imitate any proprietary phone branding.

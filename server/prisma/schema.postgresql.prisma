@@ -1,0 +1,386 @@
+generator client {
+  provider = "prisma-client-js"
+  output = "../generated/postgres"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  directoryFavorites DirectoryFavorite[]
+  publicBookings PublicBooking[]
+  id                     Int       @id @default(autoincrement())
+  email                  String    @unique
+  password               String
+  name                   String
+  role                   String    @default("business")
+  plan                   String    @default("free")
+  emailVerified          Boolean   @default(false)
+  emailVerificationToken String?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  createdAt              DateTime  @default(now())
+  sessions               AuthSession[]
+  store                  Store?
+}
+
+model Store {
+  id               Int        @id @default(autoincrement())
+  userId           Int        @unique
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  slug             String     @unique
+  description      String?
+  phone            String
+  address          String?
+  logoUrl          String?
+  bannerUrl        String?
+  themeColor       String     @default("#6C63FF")
+  businessHours    String?
+  schedulingConfig String?
+  active           Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt             DateTime  @updatedAt
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  subscriptionStatus    String    @default("free") // free, active, past_due, canceled
+  plan                  String    @default("trial")
+  trialEndsAt           DateTime?
+  // Assinatura feita no app Android (Google Play Billing). O Stripe continua
+  // valendo no site; subscriptionSource diz qual dos dois liberou o premium.
+  subscriptionSource    String?   // stripe, play
+  subscriptionExpiresAt DateTime? // fim do período pago informado pelo Google
+  playPurchaseToken     String?
+  playProductId         String?
+  directoryListing DirectoryListing?
+  categories    Category[]
+  products      Product[]
+  orders        Order[]
+  professionals Professional[]
+  blockedSlots  BlockedSlot[]
+  clients       Client[]
+  whatsappSignupStates WhatsAppSignupState[]
+  whatsappInbox WhatsAppInbox[]
+  whatsappDeliveries WhatsAppDelivery[]
+  whatsappConversations WhatsAppConversation[]
+
+  // Chatbot configuration
+  botEnabled      Boolean  @default(false)
+  botGreeting     String?  // Mensagem de boas-vindas
+  botAwayMessage  String?  // Mensagem fora do horário
+  botPhoneId      String?  // WhatsApp Business Phone Number ID
+  botToken        String?  // WhatsApp Cloud API Token
+  botWebhookToken String?  // Token de verificação do webhook
+  officialWabaId String?
+  officialPhoneId String? @unique
+  officialToken String?
+  officialTokenExpiresAt DateTime?
+  officialStatus String @default("disconnected")
+  officialDisplayPhone String?
+  officialVerifiedName String?
+  officialLastError String?
+}
+
+model WhatsAppSignupState {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model WhatsAppInbox {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone String
+  payload String
+  status String @default("pending")
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, availableAt])
+}
+
+model WhatsAppConversation {
+  id String @id
+  storeId Int?
+  store Store? @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  state String
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppDelivery {
+  id String @id
+  storeId Int
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  phone String
+  status String @default("accepted")
+  error String?
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppWorkerLease {
+  id String @id
+  owner String
+  expiresAt DateTime
+}
+
+model Category {
+  id       Int       @id @default(autoincrement())
+  storeId  Int
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name     String
+  order    Int       @default(0)
+  products Product[]
+}
+
+model Product {
+  @@index([storeId, active, price])
+  directoryServices ProductServiceTag[]
+  id          Int       @id @default(autoincrement())
+  storeId     Int
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId  Int?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name        String
+  description String?
+  price       Float
+  duration    Int       @default(30)
+  bufferTime  Int       @default(0)
+  imageUrl    String?
+  active      Boolean   @default(true)
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  orders      Order[]
+}
+
+model Order {
+  publicBooking PublicBooking?
+  id              Int           @id @default(autoincrement())
+  storeId         Int
+  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId       Int?
+  product         Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  professionalId  Int?
+  professional    Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  customerName    String
+  customerPhone   String
+  customerAddress String?
+  scheduledTime   String?
+  scheduledAt     DateTime?
+  // Duração personalizada em minutos para ESTE atendimento. Quando preenchida,
+  // substitui Product.duration no cálculo de ocupação da agenda — permite ao
+  // profissional reservar mais (ou menos) tempo que o padrão do serviço.
+  durationOverride Int?
+  reservedDurationMinutes Int?
+  reservedBufferMinutes Int?
+  priceCents Int?
+  notes           String?
+  status          String        @default("pending") // pending, confirmed, completed, cancelled
+  totalPrice      Float?
+  createdAt       DateTime      @default(now())
+}
+
+model Professional {
+  id           Int           @id @default(autoincrement())
+  storeId      Int
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name         String
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  orders       Order[]
+  blockedSlots BlockedSlot[]
+}
+
+model BlockedSlot {
+  id             Int           @id @default(autoincrement())
+  storeId        Int
+  store          Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  professionalId Int?
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  date           String        // YYYY-MM-DD ou "monday","tuesday" etc para recorrente
+  startTime      String?       // HH:MM
+  endTime        String?       // HH:MM
+  isFullDay      Boolean       @default(false)
+  isRecurring    Boolean       @default(false)
+  reason         String?
+  createdAt      DateTime      @default(now())
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  storeId   Int
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, phone])
+}
+
+
+model DirectoryListing {
+  favorites DirectoryFavorite[]
+  bookings PublicBooking[]
+  reviews DirectoryReview[]
+  id Int @id @default(autoincrement())
+  publicId String @unique
+  storeId Int @unique
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name String
+  description String @default("")
+  phone String
+  storeSlug String
+  address String
+  neighborhood String @default("")
+  municipalityCode String
+  city String
+  uf String
+  latitude Float
+  longitude Float
+  publicLatitude Float
+  publicLongitude Float
+  locationPrecision String @default("exact")
+  timeZone String
+  hoursJson String @default("{}")
+  holidayHoursJson String @default("{}")
+  coordinatesConfirmedAt DateTime?
+  onlineBookingEnabled Boolean @default(false)
+  status String @default("draft")
+  version Int @default(1)
+  consentAt DateTime?
+  moderationReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  services DirectoryListingService[]
+  reports DirectoryReport[]
+  @@index([status, municipalityCode])
+  @@index([status, publicLatitude, publicLongitude])
+}
+
+model DirectoryListingService {
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  slug String
+  @@id([listingId, slug])
+  @@index([slug, listingId])
+}
+
+model DirectoryMunicipality {
+  code String @id
+  name String
+  searchName String
+  uf String
+  timeZone String
+  updatedAt DateTime @updatedAt
+  @@index([uf, searchName])
+  @@index([searchName])
+}
+
+model DirectoryReport {
+  id String @id
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  userId Int
+  reason String
+  status String @default("open")
+  createdAt DateTime @default(now())
+  @@unique([listingId, userId])
+  @@index([status, createdAt])
+}
+
+model DirectoryAudit {
+  id String @id
+  listingId Int
+  actorId Int
+  action String
+  reason String?
+  createdAt DateTime @default(now())
+  @@index([listingId, createdAt])
+}
+
+model DirectoryQuota {
+  key String @id
+  count Int @default(0)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model AuthSession {
+  id        String @id
+  userId    Int
+  csrfHash  String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+
+
+
+model ServiceTag {
+  slug String @id
+  name String
+  products ProductServiceTag[]
+}
+
+model ProductServiceTag {
+  productId Int
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  slug String
+  service ServiceTag @relation(fields: [slug], references: [slug], onDelete: Cascade)
+  @@id([productId, slug])
+  @@index([slug, productId])
+}
+
+
+model DirectoryFavorite {
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, listingId])
+}
+
+model PublicBooking {
+  id String @id
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId Int @unique
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  idempotencyKey String
+  requestHash String
+  timeZone String
+  createdAt DateTime @default(now())
+  review DirectoryReview?
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+
+model DirectoryReview {
+  id String @id
+  bookingId String @unique
+  booking PublicBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  rating Int
+  text String
+  status String @default("pending")
+  moderationReason String?
+  response String?
+  responseStatus String @default("none")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([listingId, status, createdAt])
+}
+

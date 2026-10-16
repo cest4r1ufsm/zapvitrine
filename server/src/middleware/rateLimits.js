@@ -1,10 +1,12 @@
 const rateLimit = require('express-rate-limit');
+const { limitStore } = require('../lib/sharedLimits');
 
 const message = { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' };
 
 // Login: 5 tentativas FALHAS / 15 min por IP (anti brute-force de senha).
 // Logins bem-sucedidos não contam — não pune escritórios/NAT com vários usuários legítimos.
 const loginLimiter = rateLimit({
+  ...limitStore('login'),
   windowMs: 15 * 60 * 1000,
   limit: 5,
   standardHeaders: true,
@@ -15,6 +17,7 @@ const loginLimiter = rateLimit({
 
 // Registro: 10 contas / hora por IP
 const registerLimiter = rateLimit({
+  ...limitStore('register'),
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
@@ -26,8 +29,10 @@ const registerLimiter = rateLimit({
 // protege a caixa de terceiros e a cota diária do Brevo.
 // Factory: cada rota recebe a SUA instância (balde próprio) — antes a mesma instância
 // era compartilhada entre as duas rotas e o limite de 3/h somava as duas.
+let emailLimiterIndex = 0;
 function makeEmailLimiter() {
   return rateLimit({
+    ...limitStore(`email-${emailLimiterIndex++}`),
     windowMs: 60 * 60 * 1000,
     limit: 3,
     standardHeaders: true,
@@ -41,6 +46,7 @@ function makeEmailLimiter() {
 // só nesse endpoint — o teto antigo de 300 era estourado por uso normal).
 // Webhooks (Stripe/Meta) ficam de fora: têm burst legítimo e validação própria de assinatura.
 const apiLimiter = rateLimit({
+  ...limitStore('api'),
   windowMs: 15 * 60 * 1000,
   limit: 2000,
   standardHeaders: true,

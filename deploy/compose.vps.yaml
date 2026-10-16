@@ -1,0 +1,125 @@
+name: agtgestor-vps
+x-app: &app
+  image: ${APP_IMAGE:?Defina APP_IMAGE com uma versao imutavel}
+  env_file: [.env.runtime]
+  environment:
+    NODE_ENV: production
+    PORT: "3001"
+    RUN_BACKGROUND_JOBS: "false"
+    TRUST_PROXY_HOPS: "1"
+    NODE_EXTRA_CA_CERTS: /etc/agt/redis-ca.crt
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 45s
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  volumes:
+    - ./private/redis-ca.crt:/etc/agt/redis-ca.crt:ro
+  tmpfs:
+    - /app/tmp:uid=1000,gid=1000,mode=0700,size=268435456
+  networks: [private, egress]
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+  logging: &logging
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+services:
+  api:
+    <<: *app
+    command: [node, src/index.js]
+    mem_limit: 1280m
+    cpus: "0.85"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+  worker:
+    <<: *app
+    command: [node, src/worker.js]
+    mem_limit: 1280m
+    cpus: "0.55"
+  postgres:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    mem_limit: 2048m
+    cpus: "0.85"
+    shm_size: 256m
+    environment:
+      POSTGRES_DB: agtgestor
+      POSTGRES_USER: agt_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets: [postgres_admin_password, postgres_app_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+      - ./grant-app.sql:/bootstrap/grant-app.sql:ro
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U agt_admin -d agtgestor"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: "0.20"
+    command: [sh, -c, 'exec redis-server /etc/redis/redis.conf --requirepass "$$(cat /run/secrets/redis_password)"']
+    secrets: [redis_password]
+    volumes:
+      - redis_data:/data
+      - ./redis-vps.conf:/etc/redis/redis.conf:ro
+      - ./private/redis-server.crt:/etc/redis/server.crt:ro
+      - ./private/redis-server.key:/etc/redis/server.key:ro
+      - ./private/redis-ca.crt:/etc/redis/ca.crt:ro
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --tls --cacert /etc/redis/ca.crt -h redis -p 6379 ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "0.15"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Defina APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Defina ACME_EMAIL}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile.vps:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [private, egress]
+    depends_on:
+      api: {condition: service_healthy}
+    logging: *logging
+  migrate:
+    <<: *app
+    profiles: [tools]
+    env_file: []
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://agt_admin@postgres:5432/agtgestor
+      NODE_EXTRA_CA_CERTS: /etc/agt/redis-ca.crt
+    secrets: [postgres_admin_password]
+    command: [sh, -c, 'export DATABASE_URL="postgresql://agt_admin:$$(cat /run/secrets/postgres_admin_password)@postgres:5432/agtgestor"; exec node scripts/migrate-postgres.js --apply']
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+networks:
+  private: {internal: true}
+  egress: {}
+secrets:
+  postgres_admin_password: {file: ./private/postgres-admin-password}
+  postgres_app_password: {file: ./private/postgres-app-password}
+  redis_password: {file: ./private/redis-password}

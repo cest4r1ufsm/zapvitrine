@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import { ordersAPI } from '../services/api';
 import PageGuide from '../components/PageGuide';
 import UIIcon from '../components/UIIcon';
 import { btnPrimary } from '../styles/buttons';
 import { tint } from '../styles/surfaces';
+import { localClockDate } from '../services/localClock';
 
 const AGENDA_GUIDE_STEPS = [
-  'A <strong>grade semanal</strong> mostra todos os agendamentos posicionados pelo horário. Use as setas para navegar entre semanas.',
+  'Comece pelos atendimentos do <strong>dia</strong>. Troque para <strong>Semana</strong> para planejar os próximos horários.',
   'Clique em qualquer agendamento para ver os detalhes e alterar o status: <strong>Confirmar</strong>, <strong>Concluído</strong> ou <strong>Cancelar</strong>.',
   'Clique em <strong>+ Agendar</strong> para criar um agendamento manual. Esse recurso ajuda quando o cliente liga ou chega pessoalmente.',
   'No modal de novo agendamento, após escolher o serviço e a data, os <strong>horários disponíveis</strong> aparecem automaticamente.',
@@ -16,17 +17,15 @@ const AGENDA_GUIDE_STEPS = [
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const STATUS_COLOR  = { pending:'#f59e0b', confirmed:'#3b82f6', completed:'#10b981', cancelled:'#ef4444' };
+const STATUS_COLOR  = { pending:'#9a5b00', confirmed:'#1d4ed8', completed:'#047857', cancelled:'#b91c1c' };
 const STATUS_LABEL  = { pending:'Aguardando', confirmed:'Confirmado', completed:'Concluído',  cancelled:'Cancelado' };
 const WEEKDAY_SHORT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MONTH_NAMES   = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-// Convenção do projeto: "fake UTC = BRT". Trabalhamos com um instante já
-// deslocado em -3h e lemos SEMPRE os componentes em UTC — misturar getDay()/
-// getDate() (locais) com toISOString() (UTC) aplicava o offset duas vezes e
-// desalinhava a grade em um dia entre 00:00 e 03:00 BRT.
-function nowBRT() {
-  return new Date(Date.now() - 3 * 60 * 60 * 1000);
+// O banco conserva horários civis em campos UTC. A data atual deve usar o
+// fuso do estabelecimento, sem depender do fuso do celular do administrador.
+function nowBRT(timeZone) {
+  return localClockDate(timeZone);
 }
 
 function toLocalDateStr(date) {
@@ -68,7 +67,7 @@ const HOURS      = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START
 
 // ─── New Appointment Modal ───────────────────────────────────────────────────
 
-function NewAppointmentModal({ onClose, onCreated, initialDate }) {
+function NewAppointmentModal({ onClose, onCreated, initialDate, timeZone }) {
   const [professionals, setProfessionals] = useState([]);
   const [services, setServices]       = useState([]);
   const [slots, setSlots]             = useState([]);
@@ -80,7 +79,7 @@ function NewAppointmentModal({ onClose, onCreated, initialDate }) {
   const [retry, setRetry] = useState(0);
 
   const todayStr = (() => {
-    return nowBRT().toISOString().slice(0, 10);
+    return nowBRT(timeZone).toISOString().slice(0, 10);
   })();
 
   const [form, setForm] = useState({
@@ -322,6 +321,8 @@ function OrderCard({ order, onStatusChange }) {
   return (
     <div style={{ position: 'relative' }}>
       <div
+        role="button" tabIndex={0} aria-expanded={open}
+        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setOpen(value => !value); } }}
         onClick={() => setOpen(!open)}
         style={{
           background: color + '22',
@@ -337,7 +338,7 @@ function OrderCard({ order, onStatusChange }) {
         }}
       >
         <strong style={{ color }}>{timeStr}{endStr ? ` a ${endStr}` : ''}</strong>
-        <div style={{ color: '#333', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {order.customerName} · {order.product?.name}
         </div>
         {order.professional && <div style={{ color: 'var(--text-secondary)', fontSize: 10 }}>{order.professional.name}</div>}
@@ -380,7 +381,7 @@ function OrderCard({ order, onStatusChange }) {
 
 // ─── Week Grid ───────────────────────────────────────────────────────────────
 
-function WeekGrid({ weekDays, orders, onStatusChange }) {
+function WeekGrid({ weekDays, orders, onStatusChange, timeZone }) {
   const ordersByDay = {};
   weekDays.forEach(d => { ordersByDay[toLocalDateStr(d)] = []; });
 
@@ -403,7 +404,7 @@ function WeekGrid({ weekDays, orders, onStatusChange }) {
       {weekDays.map(day => {
         const dateStr  = toLocalDateStr(day);
         const dayOrders = ordersByDay[dateStr] || [];
-        const today    = toLocalDateStr(nowBRT());
+        const today    = toLocalDateStr(nowBRT(timeZone));
         const isToday  = (dateStr === today);
 
         return (
@@ -440,35 +441,41 @@ function WeekGrid({ weekDays, orders, onStatusChange }) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
-export default function AgendaPage() {
-  const [anchor, setAnchor]       = useState(() => weekStart(nowBRT()));
+export default function AgendaPage({ timeZone }) {
+  const [anchor, setAnchor]       = useState(() => weekStart(nowBRT(timeZone)));
+  const [view, setView] = useState('day');
+  const [dayFocus, setDayFocus] = useState(() => nowBRT(timeZone));
   const [orders, setOrders]       = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [modalDate, setModalDate] = useState(null);
   const [loadError, setLoadError] = useState('');
+  const requestVersion = useRef(0);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(anchor, i));
 
   const fetchOrders = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     setLoadError('');
     try {
-      const start = toLocalDateStr(anchor);
-      const end   = toLocalDateStr(addDays(anchor, 6));
+      const start = toLocalDateStr(view === 'day' ? dayFocus : anchor);
+      const end = view === 'day' ? start : toLocalDateStr(addDays(anchor, 6));
       const data  = await api.get(`/orders/agenda?start=${start}&end=${end}`);
+      if (version !== requestVersion.current) return;
       setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (version !== requestVersion.current) return;
       // Não silenciar: uma agenda vazia por erro é indistinguível de uma
       // agenda vazia de verdade, e foi isso que mascarou a rota faltante.
       setOrders([]);
       setLoadError(err.message || 'Não foi possível carregar a agenda.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, [anchor]);
+  }, [anchor, dayFocus, view]);
 
-  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+  useEffect(() => { fetchOrders(); return () => { requestVersion.current += 1; }; }, [fetchOrders]);
 
   function handleStatusChange(orderId, newStatus) {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
@@ -478,7 +485,7 @@ export default function AgendaPage() {
     setOrders(prev => [...prev, order]);
   }
 
-  const todayStr   = toLocalDateStr(nowBRT());
+  const todayStr   = toLocalDateStr(nowBRT(timeZone));
   const monthLabel = MONTH_NAMES[weekDays[0].getUTCMonth()];
   const yearLabel  = weekDays[0].getUTCFullYear();
 
@@ -489,13 +496,14 @@ export default function AgendaPage() {
       <div style={page.header}>
         <div>
           <h1 style={page.title}>Agenda</h1>
-          <div style={page.subtitle}>{monthLabel} {yearLabel}</div>
+          <div style={page.subtitle}>{view === 'day' ? `${dayFocus.getUTCDate()} de ${MONTH_NAMES[dayFocus.getUTCMonth()]} ${dayFocus.getUTCFullYear()}` : `${monthLabel} ${yearLabel}`}</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button style={page.navBtn} onClick={() => setAnchor(a => addDays(a, -7))}>‹ Semana anterior</button>
-          <button style={page.todayBtn} onClick={() => setAnchor(weekStart(new Date(Date.now() - 3*60*60*1000)))}>Hoje</button>
-          <button style={page.navBtn} onClick={() => setAnchor(a => addDays(a, 7))}>Próxima semana ›</button>
-          <button style={page.newBtn} onClick={() => { setModalDate(todayStr); setShowModal(true); }}>+ Agendar</button>
+        <div className="flow-agenda-controls">
+          <div className="flow-account-tabs" role="group" aria-label="Visualização da agenda">{[['day', 'Dia'], ['week', 'Semana']].map(([value, label]) => <button key={value} aria-pressed={view === value} onClick={() => { setView(value); if (value === 'week') setAnchor(weekStart(dayFocus)); }}>{label}</button>)}</div>
+          <button style={page.navBtn} aria-label={view === 'day' ? 'Dia anterior' : 'Semana anterior'} onClick={() => view === 'day' ? setDayFocus(day => addDays(day, -1)) : setAnchor(day => addDays(day, -7))}>‹</button>
+          <button style={page.todayBtn} onClick={() => { setDayFocus(nowBRT(timeZone)); setAnchor(weekStart(nowBRT(timeZone))); }}>Hoje</button>
+          <button style={page.navBtn} aria-label={view === 'day' ? 'Próximo dia' : 'Próxima semana'} onClick={() => view === 'day' ? setDayFocus(day => addDays(day, 1)) : setAnchor(day => addDays(day, 7))}>›</button>
+          <button style={page.newBtn} onClick={() => { setModalDate(view === 'day' ? toLocalDateStr(dayFocus) : todayStr); setShowModal(true); }}>+ Agendar</button>
         </div>
       </div>
 
@@ -509,8 +517,8 @@ export default function AgendaPage() {
       {loading ? (
         <div style={page.loading}>Carregando agenda...</div>
       ) : (
-        <div style={page.scrollArea}>
-          <WeekGrid weekDays={weekDays} orders={orders} onStatusChange={handleStatusChange} />
+        view === 'day' ? <div className="flow-day-agenda">{orders.filter(order => order.scheduledAt).length ? orders.filter(order => order.scheduledAt).sort((a, b) => String(a.scheduledAt).localeCompare(String(b.scheduledAt))).map(order => <OrderCard key={order.id} order={order} onStatusChange={handleStatusChange} />) : !loadError && <p>Nenhum atendimento neste dia.</p>}</div> : <div style={page.scrollArea}>
+          <WeekGrid timeZone={timeZone} weekDays={weekDays} orders={orders} onStatusChange={handleStatusChange} />
         </div>
       )}
 
@@ -540,6 +548,7 @@ export default function AgendaPage() {
           onClose={() => setShowModal(false)}
           onCreated={handleCreated}
           initialDate={modalDate}
+          timeZone={timeZone}
         />
       )}
     </div>

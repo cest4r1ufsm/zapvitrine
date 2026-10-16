@@ -26,7 +26,7 @@ export default function ForgotPasswordPage() {
     <div className="auth-page">
       <div className="auth-container">
         <div className="auth-logo">
-          <h1>AGTgestor</h1>
+          <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           <p>Gestão de agenda e atendimentos</p>
         </div>
 

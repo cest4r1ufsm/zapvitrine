@@ -1,15 +1,16 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const { createSession, csrfForToken, readToken, clearSessionCookie, requireTrustedOrigin } = require('../services/session');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const { removeImage } = require('../services/objectStorage');
 const prisma = require('../lib/prisma');
 const { auth } = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const { loginLimiter, registerLimiter, makeEmailLimiter } = require('../middleware/rateLimits');
 
 const router = express.Router();
+router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+router.use(requireTrustedOrigin);
 
 // Instâncias separadas: cada rota de e-mail tem o seu próprio balde de 3/h
 const resendVerificationLimiter = makeEmailLimiter();
@@ -22,9 +23,10 @@ function generateToken() {
 // Register
 router.post('/register', registerLimiter, async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, accountType = 'business' } = req.body;
+    if (!['business', 'consumer'].includes(accountType)) return res.status(400).json({ error: 'Tipo de conta invalido' });
 
-    if (!email || !password || !name) {
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || typeof password !== 'string' || Buffer.byteLength(password) > 72 || typeof name !== 'string' || !name.trim() || name.length > 120) {
       return res.status(400).json({ error: 'Preencha todos os campos' });
     }
 
@@ -40,26 +42,15 @@ router.post('/register', registerLimiter, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const emailVerificationToken = generateToken();
 
-    const user = await prisma.user.create({
-      data: { email, password: hashedPassword, name, emailVerificationToken, emailVerified: false },
-    });
-
-    // Create default store
-    const slug = name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-
-    await prisma.store.create({
-      data: {
-        userId: user.id,
-        name: `Loja de ${name}`,
-        slug: slug + '-' + user.id,
-        phone: '',
-        trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
+    const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const user = await prisma.$transaction(async tx => {
+      const created = await tx.user.create({
+        data: { email, password: hashedPassword, name, role: accountType, emailVerificationToken, emailVerified: false },
+      });
+      if (accountType === 'business') await tx.store.create({
+        data: { userId: created.id, name: `Loja de ${name}`, slug: `${slug}-${created.id}`, phone: '', trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+      });
+      return created;
     });
 
     // Send verification email (non-blocking: log errors but don't fail)
@@ -72,7 +63,8 @@ router.post('/register', registerLimiter, async (req, res) => {
       message: 'Conta criada com sucesso! Verifique seu e-mail para ativar a conta.',
     });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
+    if (error.code === 'P2002') return res.status(409).json({ error: 'Este e-mail já está cadastrado' });
     res.status(500).json({ error: 'Erro ao registrar usuário' });
   }
 });
@@ -82,7 +74,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || !email || email.length > 254 || typeof password !== 'string' || !password || Buffer.byteLength(password) > 72) {
       return res.status(400).json({ error: 'Preencha todos os campos' });
     }
 
@@ -104,16 +96,14 @@ router.post('/login', loginLimiter, async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: '30d',
-    });
+    const csrfToken = await createSession(req, res, user.id, user.password);
 
     res.json({
-      token,
+      csrfToken,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
     });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao fazer login' });
   }
 });
@@ -123,7 +113,7 @@ router.get('/verify-email', async (req, res) => {
   try {
     const { token } = req.query;
 
-    if (!token) {
+    if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
       return res.status(400).json({ error: 'Token inválido' });
     }
 
@@ -142,7 +132,7 @@ router.get('/verify-email', async (req, res) => {
 
     res.json({ success: true, message: 'E-mail confirmado com sucesso!' });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao verificar e-mail' });
   }
 });
@@ -152,7 +142,7 @@ router.post('/resend-verification', resendVerificationLimiter, async (req, res) 
   try {
     const { email } = req.body;
 
-    if (!email) {
+    if (typeof email !== 'string' || !email || email.length > 254) {
       return res.status(400).json({ error: 'Informe o e-mail' });
     }
 
@@ -175,7 +165,7 @@ router.post('/resend-verification', resendVerificationLimiter, async (req, res) 
 
     res.json({ message: 'E-mail de confirmação reenviado!' });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao reenviar e-mail' });
   }
 });
@@ -185,7 +175,7 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email) {
+    if (typeof email !== 'string' || !email || email.length > 254) {
       return res.status(400).json({ error: 'Informe o e-mail' });
     }
 
@@ -208,7 +198,7 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
 
     res.json({ message: 'Se o e-mail estiver cadastrado, você receberá um link de redefinição.' });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao processar solicitação' });
   }
 });
@@ -218,7 +208,7 @@ router.post('/reset-password', async (req, res) => {
   try {
     const { token, password } = req.body;
 
-    if (!token || !password) {
+    if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token) || typeof password !== 'string' || !password || Buffer.byteLength(password) > 72) {
       return res.status(400).json({ error: 'Token e nova senha são obrigatórios' });
     }
 
@@ -239,18 +229,20 @@ router.post('/reset-password', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      },
+    const consumed = await prisma.$transaction(async tx => {
+      const changed = await tx.user.updateMany({
+        where: { id: user.id, passwordResetToken: token, passwordResetExpires: { gt: new Date() } },
+        data: { password: hashedPassword, passwordResetToken: null, passwordResetExpires: null },
+      });
+      if (changed.count) await tx.authSession.deleteMany({ where: { userId: user.id } });
+      return changed.count;
     });
+    if (!consumed) return res.status(400).json({ error: 'Token inválido ou já utilizado' });
+    clearSessionCookie(res);
 
     res.json({ success: true, message: 'Senha redefinida com sucesso!' });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao redefinir senha' });
   }
 });
@@ -261,7 +253,7 @@ router.post('/reset-password', async (req, res) => {
 router.delete('/account', auth, loginLimiter, async (req, res) => {
   try {
     const { password } = req.body || {};
-    if (!password || !(await bcrypt.compare(password, req.user.password))) {
+    if (typeof password !== 'string' || !password || Buffer.byteLength(password) > 72 || !(await bcrypt.compare(password, req.user.password))) {
       return res.status(400).json({ error: 'Senha incorreta' });
     }
 
@@ -271,6 +263,16 @@ router.delete('/account', auth, loginLimiter, async (req, res) => {
     });
 
     if (store) {
+      if (store.stripeSubscriptionId && store.subscriptionSource !== 'play') {
+        if (!process.env.STRIPE_SECRET_KEY) return res.status(503).json({ error: 'Não foi possível confirmar o cancelamento da assinatura. Tente novamente antes de excluir a conta.' });
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        try { await stripe.subscriptions.cancel(store.stripeSubscriptionId); }
+        catch (err) {
+          // A deleted Stripe resource is already canceled; other failures must
+          // preserve the account so its owner can still manage billing.
+          if (err.code !== 'resource_missing') return res.status(502).json({ error: 'Não foi possível cancelar a assinatura. Sua conta foi preservada; tente novamente.' });
+        }
+      }
       // Invalidate authorization before stopping sessions or cancelling billing.
       // Workers re-check the store before effects; new inbound events are ignored.
       await prisma.store.update({ where: { id: store.id }, data: {
@@ -280,21 +282,25 @@ router.delete('/account', auth, loginLimiter, async (req, res) => {
       const { stopSession } = require('../services/whatsapp');
       await stopSession(store.id).catch((err) => console.error('Excluir conta: WhatsApp', err.message));
 
-      if (store.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-        await stripe.subscriptions.cancel(store.stripeSubscriptionId)
-          .catch((err) => console.error('Excluir conta: Stripe', err.message));
-      }
-
-      const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
       const files = [store.logoUrl, store.bannerUrl, ...store.products.map((p) => p.imageUrl)];
       for (const url of files) {
-        if (!url || !url.startsWith('/uploads/')) continue;
-        fs.rm(path.join(uploadsDir, path.basename(url)), { force: true }, () => {});
+        if (url) await removeImage(url);
       }
     }
 
     await prisma.$transaction(async tx => {
+      // Consumer booking history is owned by salons, but must not retain the
+      // deleted account's contact fields. Cancel future reservations atomically.
+      await tx.order.updateMany({
+        where: { publicBooking: { is: { userId: req.user.id } }, scheduledAt: { gt: new Date() }, status: { in: ['pending', 'confirmed'] } },
+        data: { status: 'cancelled' },
+      });
+      await tx.order.updateMany({
+        where: { publicBooking: { is: { userId: req.user.id } } },
+        data: { customerName: 'Conta excluída', customerPhone: '', customerAddress: null, notes: null },
+      });
+      await tx.directoryReport.deleteMany({ where: { userId: req.user.id } });
+      await tx.directoryAudit.updateMany({ where: { actorId: req.user.id }, data: { actorId: 0 } });
       if (store) {
         await tx.whatsAppSignupState.deleteMany({ where: { storeId: store.id } });
         await tx.whatsAppInbox.deleteMany({ where: { storeId: store.id } });
@@ -308,9 +314,17 @@ router.delete('/account', auth, loginLimiter, async (req, res) => {
     });
     res.json({ success: true, message: 'Conta excluída.' });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao excluir conta' });
   }
+});
+
+router.post('/logout', auth, async (req, res) => {
+  try {
+    if (req.authSession) await prisma.authSession.deleteMany({ where: { id: req.authSession.id } });
+    clearSessionCookie(res);
+    res.json({ success: true });
+  } catch { res.status(503).json({ error: 'Não foi possível encerrar a sessão. Tente novamente.' }); }
 });
 
 // Get current user
@@ -326,12 +340,12 @@ router.get('/me', auth, async (req, res) => {
     let safeStore = null;
     if (store) {
       const { botToken, botWebhookToken, officialToken, stripeCustomerId, stripeSubscriptionId, playPurchaseToken, ...rest } = store;
-      safeStore = rest;
+      safeStore = { ...rest, timeZone: await require('../utils/timeZone').storeTimeZone(prisma, store.id) };
     }
 
-    res.json({ user, store: safeStore });
+    res.json({ user, store: safeStore, csrfToken: req.authSession ? csrfForToken(readToken(req)) : undefined });
   } catch (error) {
-    console.error(error);
+    console.error('Auth operation failed', { code: error.code || 'INTERNAL_ERROR' });
     res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
   }
 });

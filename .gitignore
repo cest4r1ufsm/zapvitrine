@@ -1,5 +1,11 @@
 node_modules/
+server/generated/
+migration-counts.json
+.terraform/
+*.tfstate*
+*.tfvars
 dist/
+client/test-results/
 .env
 *.db
 *.db-journal
@@ -32,3 +38,15 @@ deploy.zip
 
 # Submodulos externos
 html-in-canvas/
+
+# Local dependency recovery and infrastructure state
+node_modules.before-security-update/
+node_modules.locked-security-update/
+node_modules.locked-directory-update/
+.session-validation-path
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example

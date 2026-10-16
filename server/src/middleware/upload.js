@@ -2,7 +2,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const uploadDir = path.join(__dirname, '..', '..', 'uploads');
+// Untrusted originals must never be served by /uploads, even briefly.
+const uploadDir = path.join(require('node:os').tmpdir(), 'agtgestor-upload-quarantine');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -23,7 +24,7 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = require('node:crypto').randomUUID();
     cb(null, uniqueSuffix + MIME_EXT[file.mimetype]);
   },
 });
@@ -43,5 +44,17 @@ const upload = multer({
   fileFilter,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
+
+// Rejected ownership/validation must not leave quarantined files on disk.
+const single = upload.single.bind(upload);
+upload.single = field => {
+  const receive = single(field);
+  return (req, res, next) => {
+    const clean = () => { if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {}); };
+    res.once('finish', clean);
+    res.once('close', clean);
+    receive(req, res, next);
+  };
+};
 
 module.exports = upload;

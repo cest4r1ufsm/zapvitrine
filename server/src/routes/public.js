@@ -22,6 +22,7 @@ router.get('/store/:slug', async (req, res) => {
         themeColor: true,
         businessHours: true,
         active: true,
+        directoryListing: { select: { locationPrecision: true } },
         categories: {
           select: { id: true, name: true, order: true },
           orderBy: { order: 'asc' },
@@ -48,7 +49,11 @@ router.get('/store/:slug', async (req, res) => {
       return res.status(404).json({ error: 'Loja não encontrada' });
     }
 
-    res.json(store);
+    // Approximate directory profiles must not leak the private address through
+    // their existing catalog link, even after withdrawal from the directory.
+    const { directoryListing, ...publicStore } = store;
+    if (directoryListing?.locationPrecision === 'approximate') publicStore.address = null;
+    res.json(publicStore);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar loja' });

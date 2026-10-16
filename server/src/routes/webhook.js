@@ -105,7 +105,7 @@ router.post('/meta', async (req, res) => {
     }
     // Acknowledge only after durable commit; database failures cause Meta redelivery.
     res.sendStatus(200);
-    drainInbox().catch(err => console.error('[WhatsApp inbox]', err.message));
+    if (process.env.RUN_BACKGROUND_JOBS !== 'false') drainInbox().catch(() => console.error('[WhatsApp inbox] Falha no processamento'));
   } catch (err) { res.sendStatus(503); }
 });
 router.post('/:storeId', async (req, res) => {
@@ -167,7 +167,14 @@ async function processMessage(store, message) {
     }
 
     // Standard menu navigation
-    if (replyId.startsWith('cat_')) {
+    if (/^pagecat:\d+$/.test(replyId)) {
+      await sendCatalogMenu(store, from, Number(replyId.split(':')[1]));
+    } else if (/^pageprod:\d+:\d+$/.test(replyId)) {
+      const [, categoryId, page] = replyId.split(':');
+      await sendProductsForCategory(store, from, Number(categoryId), Number(page));
+    } else if (/^pageorder:\d+$/.test(replyId)) {
+      await sendOrderInstructions(store, from, Number(replyId.split(':')[1]));
+    } else if (replyId.startsWith('cat_')) {
       const catId = parseInt(replyId.replace('cat_', ''));
       await sendProductsForCategory(store, from, catId);
     } else if (replyId.startsWith('prod_')) {
@@ -189,53 +196,128 @@ async function processMessage(store, message) {
       await sendGreeting(store, from);
     }
 }
-let draining = false;
 const workerOwner = crypto.randomBytes(16).toString('hex');
-async function acquireWorkerLease() {
-  const expiresAt = new Date(Date.now() + 5 * 60000);
-  const existing = await prisma.whatsAppWorkerLease.updateMany({ where: { id: 'inbox', OR: [{ expiresAt: { lt: new Date() } }, { owner: workerOwner }] }, data: { owner: workerOwner, expiresAt } });
-  if (existing.count) return true;
-  try { await prisma.whatsAppWorkerLease.create({ data: { id: 'inbox', owner: workerOwner, expiresAt } }); return true; }
-  catch (err) { if (err.code === 'P2002') return false; throw err; }
+const INBOX_LEASE_MS = 5 * 60000;
+const INBOX_CONCURRENCY = Math.min(16, Math.max(1, Number(process.env.WHATSAPP_WORKER_CONCURRENCY) || 4));
+const INBOX_STORE_BATCH = 10;
+const INBOX_ROUND_MS = 20000;
+let stoppingInbox = false;
+let inboxTimer = null;
+let activeDrain = null;
+
+async function acquireStoreLease(storeId) {
+  const id = 'inbox:' + storeId;
+  const expiresAt = new Date(Date.now() + INBOX_LEASE_MS);
+  const acquired = await prisma.whatsAppWorkerLease.updateMany({
+    where: { id, OR: [{ expiresAt: { lt: new Date() } }, { owner: workerOwner }] },
+    data: { owner: workerOwner, expiresAt },
+  });
+  if (acquired.count) return id;
+  try { await prisma.whatsAppWorkerLease.create({ data: { id, owner: workerOwner, expiresAt } }); return id; }
+  catch (error) { if (error.code === 'P2002') return null; throw error; }
 }
-async function drainInbox() {
-  if (draining) return;
-  draining = true;
+
+async function processStoreInbox(storeId, deadline) {
+  if (stoppingInbox || Date.now() >= deadline) return;
+  const leaseId = await acquireStoreLease(storeId);
+  if (!leaseId) return;
+  let leaseHeld = true;
+  let heartbeatWork = Promise.resolve();
+  const heartbeat = setInterval(() => {
+    heartbeatWork = heartbeatWork.then(async () => {
+      const renewed = await prisma.whatsAppWorkerLease.updateMany({
+        where: { id: leaseId, owner: workerOwner, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date(Date.now() + INBOX_LEASE_MS) },
+      });
+      if (!renewed.count) leaseHeld = false;
+    }).catch(() => { leaseHeld = false; });
+  }, 30000).unref();
   try {
-    if (!await acquireWorkerLease()) return;
-    while (true) {
-      if (!await acquireWorkerLease()) break;
-      const event = await prisma.whatsAppInbox.findFirst({ where: { status: 'pending', availableAt: { lte: new Date() } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
-      if (!event) break;
-      const claimed = await prisma.whatsAppInbox.updateMany({ where: { id: event.id, status: 'pending' }, data: { status: 'processing', attempts: { increment: 1 } } });
+    // We own this store's lease. Expired work is ambiguous, so it is retained for
+    // operator review rather than repeating a possibly accepted Graph send.
+    await prisma.whatsAppInbox.updateMany({
+      where: { storeId, status: 'processing', updatedAt: { lt: new Date(Date.now() - INBOX_LEASE_MS) } },
+      data: { status: 'failed', lastError: 'Processamento interrompido; conferir envio/pedido antes de repetir.' },
+    });
+    for (let count = 0; count < INBOX_STORE_BATCH && leaseHeld && !stoppingInbox && Date.now() < deadline; count++) {
+      // Any still-processing event blocks subsequent events in this store.
+      if (await prisma.whatsAppInbox.findFirst({ where: { storeId, status: 'processing' }, select: { id: true } })) break;
+      const event = await prisma.whatsAppInbox.findFirst({
+        where: { storeId, status: 'pending' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      if (!event || event.availableAt > new Date()) break;
+      if (stoppingInbox || !leaseHeld) break;
+      const claimed = await prisma.whatsAppInbox.updateMany({
+        where: { id: event.id, status: 'pending' }, data: { status: 'processing', attempts: { increment: 1 } },
+      });
       if (!claimed.count) continue;
+      event._leaseId = leaseId;
       const key = getConvoKey(event.storeId, event.phone);
       try {
         const saved = await prisma.whatsAppConversation.findUnique({ where: { id: key } });
-        if (saved && Date.now() - saved.updatedAt.getTime() < 24 * 60 * 60000) conversations.set(key, JSON.parse(saved.state));
-        else conversations.delete(key);
+        if (saved && Date.now() - saved.updatedAt.getTime() < 24 * 60 * 60000) {
+          try {
+            const recovered = JSON.parse(saved.state);
+            if (recovered && typeof recovered.step === 'string') conversations.set(key, recovered);
+            else conversations.delete(key);
+          } catch { conversations.delete(key); }
+        } else conversations.delete(key);
         const store = await loadStore(event.storeId);
         const message = JSON.parse(event.payload);
         const identityMatches = store?.officialPhoneId === message._phoneId && store?.officialWabaId === message._wabaId && store?.officialToken && crypto.createHash('sha256').update(store.officialToken).digest('hex') === message._connectionKey;
+        if (identityMatches && store?.officialStatus !== 'connected') throw new Error('WhatsApp requer nova autorização');
         if (store?.officialStatus === 'connected' && identityMatches) {
           await processMessage(store, message);
           if (store._sendFailure) throw store._sendFailure;
         }
         await persistEvent(event, key, 'done', null);
-      } catch (err) {
+      } catch (error) {
         if (!await prisma.store.findUnique({ where: { id: event.storeId } })) continue;
-        // Do not blindly retry an ambiguous Graph timeout: acceptance may have occurred.
-        await persistEvent(event, key, 'failed', String(err.message).slice(0, 500));
+        await persistEvent(event, key, 'failed', 'Falha no processamento; conferir envio/pedido antes de repetir.');
         await prisma.store.updateMany({ where: { id: event.storeId }, data: { officialLastError: 'Falha no atendimento. Verifique a conexão oficial e os eventos pendentes.' } });
       }
     }
   } finally {
-    await prisma.whatsAppWorkerLease.deleteMany({ where: { id: 'inbox', owner: workerOwner } }).catch(() => {});
-    draining = false;
+    clearInterval(heartbeat);
+    await heartbeatWork;
+    await prisma.whatsAppWorkerLease.deleteMany({ where: { id: leaseId, owner: workerOwner } }).catch(() => {});
   }
+}
+
+function drainInbox() {
+  if (stoppingInbox) return Promise.resolve();
+  if (activeDrain) return activeDrain;
+  activeDrain = (async () => {
+    const legacyLease = await prisma.whatsAppWorkerLease.findUnique({ where: { id: 'inbox' } });
+    if (legacyLease?.expiresAt > new Date()) return;
+    const deadline = Date.now() + INBOX_ROUND_MS;
+    // SQL GROUP BY selects stores, never loads the national message queue into JS.
+    const candidates = /^postgres(ql)?:/.test(process.env.DATABASE_URL || '')
+      ? await prisma.$queryRaw`
+          SELECT event."storeId" FROM "WhatsAppInbox" event
+          WHERE event.status IN ('pending','processing') AND event."availableAt" <= ${new Date().toISOString()}::timestamp
+            AND NOT EXISTS (SELECT 1 FROM "WhatsAppWorkerLease" lease WHERE lease.id = 'inbox:' || event."storeId"::text AND lease."expiresAt" > ${new Date().toISOString()}::timestamp)
+            AND NOT EXISTS (SELECT 1 FROM "WhatsAppInbox" active WHERE active."storeId"=event."storeId" AND active.status='processing' AND active."updatedAt" >= ${new Date(Date.now()-INBOX_LEASE_MS).toISOString()}::timestamp)
+          GROUP BY event."storeId" ORDER BY MIN(event."createdAt") ASC LIMIT ${INBOX_CONCURRENCY * 4}`
+      : await prisma.whatsAppInbox.groupBy({
+          by: ['storeId'], where: { status: { in: ['pending', 'processing'] }, availableAt: { lte: new Date() } },
+          _min: { createdAt: true }, orderBy: { _min: { createdAt: 'asc' } }, take: INBOX_CONCURRENCY * 4,
+        });
+    let next = 0;
+    const results = await Promise.allSettled(Array.from({ length: INBOX_CONCURRENCY }, async () => {
+      while (!stoppingInbox && next < candidates.length && Date.now() < deadline) {
+        const storeId = candidates[next++].storeId;
+        await processStoreInbox(storeId, deadline);
+      }
+    }));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
+  })().finally(() => { activeDrain = null; });
+  return activeDrain;
 }
 async function persistEvent(event, key, status, lastError) {
   await prisma.$transaction(async tx => {
+    if (event._leaseId && !await tx.whatsAppWorkerLease.findFirst({ where: { id: event._leaseId, owner: workerOwner, expiresAt: { gt: new Date() } } })) return;
     const current = await tx.store.findUnique({ where: { id: event.storeId } });
     if (!current) return;
     const source = JSON.parse(event.payload);
@@ -249,10 +331,18 @@ async function persistEvent(event, key, status, lastError) {
   });
 }
 async function startInboxWorker() {
-  // Interrupted side effects are ambiguous: retain for operator review, not duplicate send/order.
-  await prisma.whatsAppInbox.updateMany({ where: { status: 'processing', updatedAt: { lt: new Date(Date.now() - 5 * 60000) } }, data: { status: 'failed', lastError: 'Processamento interrompido; conferir envio/pedido antes de repetir.' } });
+  if (inboxTimer) return inboxTimer;
+  stoppingInbox = false;
+  inboxTimer = setInterval(() => drainInbox().catch(() => console.error('[WhatsApp inbox] Falha no processamento')), 5000).unref();
   await drainInbox();
-  return setInterval(() => drainInbox().catch(err => console.error('[WhatsApp inbox]', err.message)), 5000).unref();
+  return inboxTimer;
+}
+
+async function stopInboxWorker() {
+  stoppingInbox = true;
+  if (inboxTimer) clearInterval(inboxTimer);
+  inboxTimer = null;
+  if (activeDrain) await activeDrain;
 }
 
 // ===== ORDER CONVERSATION FLOW =====
@@ -523,22 +613,20 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
       const product = await prisma.product.findFirst({ where: { id: convo.productId, storeId: store.id, active: true } });
       if (!product) throw new Error('Produto indisponível. Reinicie o pedido.');
       if (product.price !== convo.productPrice) {
-        conversations.delete(convoKey);
-        await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'O preço deste produto foi atualizado. Reinicie o pedido para conferir o novo valor.' } });
-        return undefined;
+        return { priceChanged: true };
       }
+      let resource = { professionalId: null };
       if (isSchedule) {
-        const slots = await getAvailableSlots(
-          prisma, store.id, convo.data.date, convo.productId, convo.data.professionalId ?? null,
-        );
-        if (!slots.includes(convo.data.time)) return null;
+        resource = await require('../utils/availability').assignAvailableProfessional(prisma, store.id,
+          convo.data.date, convo.productId, convo.data.professionalId ?? null, convo.data.time);
+        if (!resource) return null;
       }
 
       return prisma.order.create({
         data: {
           storeId: store.id,
           productId: convo.productId,
-          professionalId: isSchedule ? (convo.data.professionalId ?? null) : null,
+          professionalId: resource.professionalId,
           customerName: convo.data.name,
           customerPhone: from,
           customerAddress: convo.data.address || null,
@@ -548,11 +636,18 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
           notes: convo.data.notes || null,
           status: 'pending',
           totalPrice: convo.productPrice,
+          priceCents: Math.round(convo.productPrice * 100),
+          reservedDurationMinutes: product.duration,
+          reservedBufferMinutes: product.bufferTime || 0,
         },
       });
     });
 
-    if (order === undefined) return;
+    if (order?.priceChanged) {
+      conversations.delete(convoKey);
+      await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'O preço deste produto foi atualizado. Reinicie o pedido para conferir o novo valor.' } });
+      return;
+    }
     if (!order) {
       convo.data.time = null;
       conversations.set(convoKey, convo);
@@ -585,6 +680,7 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
     if (convo.data.address) msg += `📍 *Endereço:* ${convo.data.address}\n`;
     if (convo.data.notes) msg += `💬 *Obs:* ${convo.data.notes}\n`;
     msg += `\n✅ Status: *Aguardando confirmação*\n`;
+    if (isSchedule && store.slug) msg += `\n📍 Veja a localização do estabelecimento:\n${(process.env.APP_URL || 'https://agentegestor.com.br').replace(/\/$/, '')}/loja/${encodeURIComponent(store.slug)}#localizacao\n`;
     msg += `\nO lojista verá seu pedido e entrará em contato para confirmar. Obrigado! 😊`;
 
     await sendWhatsAppMessage(store, from, {
@@ -860,7 +956,17 @@ async function sendGreeting(store, to) {
   });
 }
 
-async function sendCatalogMenu(store, to) {
+function paginatedRows(items, page, prefix, makeRow) {
+  const pageSize = items.length > 10 ? 8 : 10;
+  const pages = Math.max(1, Math.ceil(items.length / pageSize));
+  const current = Math.max(0, Math.min(Number.isSafeInteger(page) ? page : 0, pages - 1));
+  const rows = items.slice(current * pageSize, (current + 1) * pageSize).map(makeRow);
+  if (current > 0) rows.push({ id: `${prefix}:${current - 1}`, title: 'Página anterior' });
+  if (current + 1 < pages) rows.push({ id: `${prefix}:${current + 1}`, title: 'Mais opções' });
+  return rows;
+}
+
+async function sendCatalogMenu(store, to, page = 0) {
   const categories = store.categories;
 
   if (categories.length === 0) {
@@ -870,7 +976,7 @@ async function sendCatalogMenu(store, to) {
 
   const sections = [{
     title: 'Categorias',
-    rows: categories.slice(0, 10).map(cat => ({
+    rows: paginatedRows(categories, page, 'pagecat', cat => ({
       id: `cat_${cat.id}`,
       title: cat.name.substring(0, 24),
       description: `Ver produtos de ${cat.name}`.substring(0, 72),
@@ -892,7 +998,7 @@ async function sendCatalogMenu(store, to) {
   });
 }
 
-async function sendProductsForCategory(store, to, categoryId) {
+async function sendProductsForCategory(store, to, categoryId, page = 0) {
   const products = store.products.filter(p => p.categoryId === categoryId);
   const category = store.categories.find(c => c.id === categoryId);
   const catName = category?.name || 'Categoria';
@@ -906,8 +1012,8 @@ async function sendProductsForCategory(store, to, categoryId) {
   }
 
   const sections = [{
-    title: catName,
-    rows: products.slice(0, 10).map(p => ({
+    title: catName.substring(0, 24),
+    rows: paginatedRows(products, page, `pageprod:${categoryId}`, p => ({
       id: `prod_${p.id}`,
       title: p.name.substring(0, 24),
       description: `R$ ${p.price.toFixed(2).replace('.', ',')}`.substring(0, 72),
@@ -997,7 +1103,7 @@ async function sendProductDetail(store, to, productId) {
   });
 }
 
-async function sendOrderInstructions(store, to) {
+async function sendOrderInstructions(store, to, page = 0) {
   // Show products as options to order
   const products = store.products;
 
@@ -1011,7 +1117,7 @@ async function sendOrderInstructions(store, to) {
 
   const sections = [{
     title: 'Escolha um produto',
-    rows: products.slice(0, 10).map(p => ({
+    rows: paginatedRows(products, page, 'pageorder', p => ({
       id: `order_${p.id}`,
       title: p.name.substring(0, 24),
       description: `R$ ${p.price.toFixed(2).replace('.', ',')}`.substring(0, 72),
@@ -1072,4 +1178,5 @@ async function sendCustomerOrders(store, from) {
 }
 
 router.startInboxWorker = startInboxWorker;
+router.stopInboxWorker = stopInboxWorker;
 module.exports = router;

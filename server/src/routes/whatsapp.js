@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const connectLimiter = rateLimit({
+  ...require('../lib/sharedLimits').limitStore('legacy-connect'),
   windowMs: 15 * 60 * 1000,
   limit: 10,
   keyGenerator: (req) => String(req.store.id),
@@ -22,6 +23,7 @@ router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); 
 // QR continua como padrão para clientes antigos. Pairing permite usar o mesmo celular.
 router.post('/connect', auth, requirePremium, connectLimiter, async (req, res) => {
   try {
+    if (process.env.NODE_ENV === 'production') return res.status(403).json({ error: 'Use a conexão oficial do WhatsApp Business.', code: 'OFFICIAL_ONLY' });
     const result = await startSession(req.store.id, req.body === undefined ? {} : req.body);
     res.json(result);
   } catch (error) {

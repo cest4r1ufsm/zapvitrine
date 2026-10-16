@@ -1,0 +1,106 @@
+name: Quality and security gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm audit --audit-level=high
+        working-directory: server
+      - name: Prepare isolated SQLite fixture
+        working-directory: server
+        env:
+          DATABASE_URL: file:./dev.db
+        run: npx prisma db push --skip-generate
+      - run: npm test
+        working-directory: server
+        env:
+          NODE_ENV: test
+          ALLOW_LEGACY_TEST_AUTH: 'true'
+      - run: npm ci
+        working-directory: client
+      - run: npm audit --audit-level=high && npm run lint && npm test && npm run build
+        working-directory: client
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.13.5'
+      - run: terraform fmt -check -recursive && terraform init -backend=false && terraform validate
+        working-directory: infra/terraform
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: agt_disposable
+          POSTGRES_USER: agt_test
+          POSTGRES_PASSWORD: local-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U agt_test -d agt_disposable"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://agt_test:local-ci-only@localhost:5432/agt_disposable
+      TEST_POSTGRES_URL: postgresql://agt_test:local-ci-only@localhost:5432/agt_disposable
+      TEST_POSTGRES_DISPOSABLE: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/prepare-postgres.js && node scripts/migrate-postgres.js --apply
+        working-directory: server
+      - run: npm run test:postgres
+        working-directory: server
+      - run: node tests/startup-smoke.test.js
+        working-directory: server
+      - name: Separate empty database for migration rehearsal
+        working-directory: server
+        run: node -e "const {Client}=require('pg');const c=new Client({connectionString:process.env.DATABASE_URL});(async()=>{await c.connect();await c.query('CREATE DATABASE agt_migration_disposable');await c.end()})().catch(e=>{console.error(e.message);process.exit(1)})"
+      - run: node scripts/migrate-postgres.js --apply && npm run test:migration
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql://agt_test:local-ci-only@localhost:5432/agt_migration_disposable
+          TEST_MIGRATION_POSTGRES_URL: postgresql://agt_test:local-ci-only@localhost:5432/agt_migration_disposable
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: agentegestor:validation
+      - name: Container runtime permissions and imports
+        run: >-
+          docker run --rm --read-only --network none --entrypoint node agentegestor:validation
+          -e "const fs=require('node:fs'),os=require('node:os');if(process.getuid()===0)throw Error('root user');const p=fs.mkdtempSync(os.tmpdir()+'/smoke-');fs.writeFileSync(p+'/test','ok');require('sharp');require('pg');require('express');require('./generated/postgres');console.log('non-root read-only runtime verified')"

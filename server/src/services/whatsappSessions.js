@@ -203,7 +203,7 @@ function createWhatsAppSessions({
     if (store?.officialPhoneId) {
       throw Object.assign(new Error('O WhatsApp oficial está configurado. Desconecte essa integração antes de usar código ou QR.'), { code: 'OFFICIAL_INTEGRATION_ACTIVE', status: 409 });
     }
-    if (!store || !isEligible(store)) {
+    if (!store || store.active === false || !isEligible(store)) {
       throw Object.assign(new Error('Assinatura necessária para conectar o WhatsApp.'), { code: 'SUBSCRIPTION_REQUIRED', status: 403 });
     }
     const existing = sessions.get(storeId);
@@ -277,7 +277,7 @@ function createWhatsAppSessions({
           session.authenticated = true;
           const storeNow = await prisma.store.findUnique({ where: { id: storeId } });
           if (!isLive(session)) return;
-          if (!storeNow || storeNow.officialPhoneId || !isEligible(storeNow)) {
+          if (!storeNow || storeNow.active === false || storeNow.officialPhoneId || !isEligible(storeNow)) {
             fail(session, 'SUBSCRIPTION_REQUIRED', 'Assinatura necessária para conectar o WhatsApp.');
             return;
           }
@@ -394,7 +394,7 @@ function createWhatsAppSessions({
             const task = previousMessage.catch(() => {}).then(async () => {
               if (!isLive(session) || session.status !== 'connected') return;
               const currentStore = await prisma.store.findUnique({ where: { id: storeId } });
-              if (!isLive(session) || !currentStore?.botEnabled || currentStore.officialPhoneId || !isEligible(currentStore)) return;
+              if (!isLive(session) || !currentStore?.botEnabled || currentStore.active === false || currentStore.officialPhoneId || !isEligible(currentStore)) return;
               let content = msg.message;
               for (let depth = 0; depth < 5; depth++) {
                 const nested = content.ephemeralMessage?.message || content.viewOnceMessage?.message ||
@@ -423,6 +423,9 @@ function createWhatsAppSessions({
   }
 
   function startSession(storeId, options = {}) {
+    if (process.env.NODE_ENV === 'production') {
+      return Promise.reject(Object.assign(new Error('Use a conexão oficial do WhatsApp Business.'), { code: 'OFFICIAL_ONLY', status: 403 }));
+    }
     const normalized = normalizeConnectOptions(options); // Antes de qualquer leitura/escrita.
     return serialize(storeId, () => connectLocked(storeId, normalized));
   }
