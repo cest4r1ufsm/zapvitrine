@@ -6,7 +6,10 @@ function configured() { return process.env.MEDIA_STORAGE === 's3'; }
 function s3() {
   if (!client) {
     const { S3Client } = require('@aws-sdk/client-s3');
-    client = new S3Client({ region: process.env.AWS_REGION });
+    // S3_ENDPOINT permite serviços compatíveis com S3 (ex.: Cloudflare R2, região "auto").
+    client = new S3Client(process.env.S3_ENDPOINT
+      ? { region: process.env.AWS_REGION || 'auto', endpoint: process.env.S3_ENDPOINT }
+      : { region: process.env.AWS_REGION });
   }
   return client;
 }
@@ -23,7 +26,9 @@ async function persistImage(buffer, filename, contentType) {
   const { PutObjectCommand } = require('@aws-sdk/client-s3');
   const key = `public/${crypto.randomUUID()}.${contentType === 'image/gif' ? 'gif' : 'webp'}`;
   await s3().send(new PutObjectCommand({ Bucket: process.env.MEDIA_BUCKET, Key: key, Body: buffer,
-    ContentType: contentType, CacheControl: 'public, max-age=60', ServerSideEncryption: 'AES256' }),
+    ContentType: contentType, CacheControl: 'public, max-age=60',
+    // R2 já criptografa tudo e não aceita este cabeçalho.
+    ...(process.env.S3_ENDPOINT ? {} : { ServerSideEncryption: 'AES256' }) }),
     { abortSignal: AbortSignal.timeout(15000) });
   return `${base.href.replace(/\/$/, '')}/${key}`;
 }
