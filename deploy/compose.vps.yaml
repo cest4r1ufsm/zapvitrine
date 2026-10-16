@@ -103,6 +103,9 @@ services:
   migrate:
     <<: *app
     profiles: [tools]
+    # Serviço efêmero: precisa ler o segredo administrativo montado pelo
+    # Compose como arquivo root-only. API e worker continuam sem root.
+    user: "0:0"
     env_file: []
     restart: "no"
     environment:
