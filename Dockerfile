@@ -21,7 +21,7 @@ FROM ${NODE_IMAGE} AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=3001 TMPDIR=/app/tmp
 WORKDIR /app/server
-RUN mkdir -p /app/tmp && chown node:node /app/tmp && chmod 700 /app/tmp
+RUN mkdir -p /app/tmp /app/server/sessions && chown node:node /app/tmp /app/server/sessions && chmod 700 /app/tmp /app/server/sessions
 VOLUME ["/app/tmp"]
 COPY --from=server-build --chown=node:node /build/server/node_modules ./node_modules
 COPY --from=server-build --chown=node:node /build/server/generated ./generated
