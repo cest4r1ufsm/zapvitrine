@@ -1,0 +1,25 @@
+# Ajuste do perfil básico para o VPS que já tem nginx com HTTPS em 80/443.
+# Uso: docker compose --env-file .env.vps -f compose.vps.yaml -f compose.nginx.yaml ...
+# - Caddy desligado (nginx continua cuidando do HTTPS e do domínio).
+# - API publicada só em 127.0.0.1:3001, mesma porta que o nginx já usa.
+# - Sessões do WhatsApp (Baileys) e chave da Play em volumes persistentes.
+services:
+  api:
+    ports: ["127.0.0.1:3001:3001"]
+    networks: [private, egress]
+    environment:
+      PLAY_SERVICE_ACCOUNT_FILE: /etc/agt/play-service-account.json
+    volumes:
+      - ./private/redis-ca.crt:/etc/agt/redis-ca.crt:ro
+      - ./private/play-service-account.json:/etc/agt/play-service-account.json:ro
+      - whatsapp_sessions:/app/server/sessions
+  worker:
+    environment:
+      PLAY_SERVICE_ACCOUNT_FILE: /etc/agt/play-service-account.json
+    volumes:
+      - ./private/redis-ca.crt:/etc/agt/redis-ca.crt:ro
+      - ./private/play-service-account.json:/etc/agt/play-service-account.json:ro
+  proxy:
+    profiles: [caddy]
+volumes:
+  whatsapp_sessions:
