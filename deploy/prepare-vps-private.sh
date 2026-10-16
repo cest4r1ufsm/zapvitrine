@@ -10,7 +10,8 @@ openssl req -x509 -newkey rsa:3072 -nodes -days 3650 -subj '/CN=AGT private Redi
 openssl req -newkey rsa:3072 -nodes -subj '/CN=redis' -keyout private/redis-server.key -out private/redis-server.csr
 printf 'subjectAltName=DNS:redis\nextendedKeyUsage=serverAuth\n' > private/redis-extensions.cnf
 openssl x509 -req -in private/redis-server.csr -CA private/redis-ca.crt -CAkey private/redis-ca.key -CAcreateserial -days 825 -extfile private/redis-extensions.cnf -out private/redis-server.crt
-# Individual file bind mounts allow container services to read these, while the
-# parent host directory stays0700. CA signing key is never mounted in containers.
-chmod 644 private/redis-ca.crt private/redis-server.crt private/redis-server.key
-printf '%s\n' 'Private files prepared. Copy password values manually into protected .env.vps; never commit or print them in shared logs.'
+# Individual file bind mounts must be readable by the non-root users inside the
+# containers. The parent host directory remains 0700, so these files are not
+# exposed to other host users. The CA signing key is never mounted.
+chmod 644 private/postgres-app-password private/redis-ca.crt private/redis-server.crt private/redis-server.key
+printf '%s\n' 'Private files prepared. Run setup-runtime-env.sh to create the protected runtime environment; never commit or print secrets in shared logs.'
