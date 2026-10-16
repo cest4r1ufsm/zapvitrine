@@ -209,10 +209,11 @@ app.use((err, req, res, next) => {
 Promise.all([require('./lib/sharedLimits').connect(), require('./lib/databaseReadiness').verifyDatabase(prisma)]).then(() => {
 const server = app.listen(PORT, () => {
   console.log(`🚀 AGTgestor API rodando em http://localhost:${PORT}`);
+  // Sockets Baileys vivem no processo da API (é ela que atende /connect), então
+  // a restauração roda mesmo com o worker separado. Só uma instância da API.
+  restoreSessions().catch(err => console.error('Error restoring sessions:', err));
   if (process.env.RUN_BACKGROUND_JOBS === 'false') return;
   webhookRoutes.startInboxWorker().catch(err => console.error('[WhatsApp inbox startup]', err.message));
-  // Restore WhatsApp sessions
-  restoreSessions().catch(err => console.error('Error restoring sessions:', err));
   // Renovação/cancelamento das assinaturas do Google Play, sem webhook
   if (playBilling) {
     const check = () => playBilling.refreshDue().catch((err) => console.error('[Play] refreshDue:', err.message));
