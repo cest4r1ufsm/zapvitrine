@@ -569,6 +569,9 @@ export default function LandingPage() {
           <span>© 2026 AGTGestor™</span>
           <span>Todos os direitos reservados</span>
         </div>
+        <p className="vl-footer-legal" style={{ maxWidth: 1320, margin: '8px auto 0', fontSize: '0.7rem', opacity: 0.6 }}>
+          VEREDA APP INOVA SIMPLES (I.S.) · CNPJ 64.747.418/0001-40
+        </p>
       </footer>
     </div>
   );
