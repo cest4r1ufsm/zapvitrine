@@ -1,0 +1,14 @@
+const assert = require('node:assert/strict');
+const { localClock } = require('../src/utils/timeZone');
+const { validateProductionConfig } = require('../src/lib/productionConfig');
+const instant = new Date('2026-10-14T03:30:00Z');
+assert.deepEqual(localClock('America/Sao_Paulo', instant), {date:'2026-10-14',minutes:30});
+assert.deepEqual(localClock('America/Rio_Branco', instant), {date:'2026-10-13',minutes:1350});
+assert.deepEqual(localClock('America/Noronha', instant), {date:'2026-10-14',minutes:90});
+assert.throws(()=>validateProductionConfig({NODE_ENV:'production',DATABASE_URL:'file:test.db'}));
+assert.doesNotThrow(()=>validateProductionConfig({NODE_ENV:'production',DATABASE_URL:'postgresql://test',REDIS_URL:'rediss://test',MEDIA_STORAGE:'s3',MEDIA_BUCKET:'test',MEDIA_PUBLIC_URL:'https://media.example.com',APP_URL:'https://example.com',RUN_BACKGROUND_JOBS:'false'}));
+console.log('PASS platform: Brazilian timezones and production fail-closed configuration');
+const valid = {NODE_ENV:'production',DATABASE_URL:'postgresql://test',REDIS_URL:'rediss://test',MEDIA_STORAGE:'s3',MEDIA_BUCKET:'test',MEDIA_PUBLIC_URL:'https://media.example.com',APP_URL:'https://example.com',RUN_BACKGROUND_JOBS:'false'};
+for (const APP_URL of ['https://example.com/dashboard','https://user:pass@example.com','https://example.com?x=1','https://example.com#x','https://']) assert.throws(() => validateProductionConfig({...valid, APP_URL}));
+for (const TRUST_PROXY_HOPS of ['NaN', '-1', '1.5', '11']) assert.throws(() => validateProductionConfig({...valid, TRUST_PROXY_HOPS}));
+assert.doesNotThrow(() => validateProductionConfig({...valid, APP_URL:'https://example.com/', TRUST_PROXY_HOPS:'2'}));

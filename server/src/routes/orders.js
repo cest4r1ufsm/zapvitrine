@@ -6,6 +6,7 @@ const { withStoreLock } = require('../utils/bookingLock');
 const { registrarCliente } = require('../utils/clients');
 const {
   getAvailableSlots,
+  assignAvailableProfessional,
   buildScheduledAt,
   formatDateBR,
   isValidHHMM,
@@ -37,8 +38,10 @@ router.get('/', auth, async (req, res) => {
     if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
 
     const { status, page = 1 } = req.query;
+    if (!/^\d+$/.test(String(page)) || !Number.isSafeInteger(Number(page)) || Number(page) < 1 || Number(page) > 100000) return res.status(400).json({ error: 'Página inválida' });
+    if (status && !['all', 'pending', 'confirmed', 'completed', 'cancelled'].includes(status)) return res.status(400).json({ error: 'Status inválido' });
     const take = 20;
-    const skip = (parseInt(page) - 1) * take;
+    const skip = (Number(page) - 1) * take;
 
     const where = { storeId: store.id };
     if (status && status !== 'all') where.status = status;
@@ -209,18 +212,18 @@ router.post('/manual', auth, async (req, res) => {
     // pedidos simultâneos para o mesmo horário passam os dois pela checagem
     // antes de qualquer um gravar, e a loja fica com agendamento duplicado.
     const order = await withStoreLock(store.id, async () => {
+      const currentProduct = await prisma.product.findFirst({ where: { id: product.id, storeId: store.id, active: true } });
+      if (!currentProduct) return null;
       // A revalidação usa a MESMA duração que será reservada — senão um
       // atendimento estendido poderia ser aceito sobre um horário sem espaço
-      const slots = await getAvailableSlots(
-        prisma, store.id, date, product.id, parsedProfessionalId, parsedDuration,
-      );
-      if (!slots.includes(time.trim())) return null;
+      const resource = await assignAvailableProfessional(prisma, store.id, date, product.id, parsedProfessionalId, time.trim(), parsedDuration);
+      if (!resource) return null;
 
       return prisma.order.create({
         data: {
           storeId: store.id,
           productId: product.id,
-          professionalId: parsedProfessionalId,
+          professionalId: resource.professionalId,
           customerName: name,
           customerPhone: phone,
           scheduledAt: buildScheduledAt(date, time.trim()),
@@ -232,7 +235,10 @@ router.post('/manual', auth, async (req, res) => {
             : null,
           notes: parsedNotes,
           status: 'pending',
-          totalPrice: product.price,
+          totalPrice: currentProduct.price,
+          priceCents: Math.round(currentProduct.price * 100),
+          reservedDurationMinutes: parsedDuration ?? currentProduct.duration,
+          reservedBufferMinutes: currentProduct.bufferTime || 0,
         },
         include: AGENDA_INCLUDE,
       });
@@ -248,6 +254,7 @@ router.post('/manual', auth, async (req, res) => {
     res.status(201).json(order);
   } catch (error) {
     console.error(error);
+    if (require('../utils/databaseErrors').isBookingConflict(error)) return res.status(409).json({ error: 'Este horário acabou de ser ocupado. Escolha outro horário.' });
     res.status(500).json({ error: 'Erro ao criar agendamento' });
   }
 });
@@ -268,11 +275,18 @@ router.patch('/:id/status', auth, async (req, res) => {
     });
     if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
 
-    const updated = await prisma.order.update({
-      where: { id: order.id },
-      data: { status },
-      include: { product: true },
+    const updated = await withStoreLock(store.id, async () => {
+      const current = await prisma.order.findUnique({ where: { id: order.id } });
+      if (!current) return null;
+      if (current.status === 'cancelled' && status !== 'cancelled' && current.scheduledAt) {
+        const iso = current.scheduledAt.toISOString();
+        const slots = await getAvailableSlots(prisma, store.id, iso.slice(0, 10), current.productId,
+          current.professionalId, current.reservedDurationMinutes ?? current.durationOverride);
+        if (!slots.includes(iso.slice(11, 16))) return null;
+      }
+      return prisma.order.update({ where: { id: order.id }, data: { status }, include: { product: true } });
     });
+    if (!updated) return res.status(409).json({ error: 'Este horário não está mais disponível para reativar o agendamento.' });
 
     // A status change remains saved if notification fails; expose acceptance separately.
     let notification = { status: 'not_requested' };
@@ -303,6 +317,7 @@ router.patch('/:id/status', auth, async (req, res) => {
     res.json({ ...updated, notification });
   } catch (error) {
     console.error(error);
+    if (require('../utils/databaseErrors').isBookingConflict(error)) return res.status(409).json({ error: 'Este horário acabou de ser ocupado. Escolha outro horário.' });
     res.status(500).json({ error: 'Erro ao atualizar pedido' });
   }
 });

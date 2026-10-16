@@ -6,7 +6,7 @@ import { btnPrimary } from '../styles/buttons';
 export default function PageGuide({ pageKey, title, steps, color = '#2B3441' }) {
   const storageKey = `agtgestor_guide_${pageKey}`;
   const [visible, setVisible] = useState(() => !localStorage.getItem(storageKey));
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   function dismiss() {
     localStorage.setItem(storageKey, 'true');
@@ -19,12 +19,12 @@ export default function PageGuide({ pageKey, title, steps, color = '#2B3441' }) 
   return (
     <div className="page-guide" style={{ ...panel, borderLeft: `2px solid ${color}66` }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer' }} onClick={() => setExpanded(e => !e)}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', }}>
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} style={{ display: 'flex', alignItems: 'center', gap: 8, border: 0, background: 'transparent', padding: 0, minHeight: 44, textAlign: 'left', cursor: 'pointer' }}>
           <UIIcon name="check" size={18} />
           <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{title}</span>
           <span style={pill}>Guia rápido</span>
-        </div>
+        </button>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{expanded ? 'Recolher ▲' : 'Expandir ▼'}</span>
           <button onClick={e => { e.stopPropagation(); dismiss(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', lineHeight: 1 }} title="Não mostrar mais"><UIIcon name="close" /></button>

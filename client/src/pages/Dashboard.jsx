@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { lazy, Suspense, useCallback, useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { storeAPI, categoriesAPI, productsAPI, adminAPI, ordersAPI, whatsappAPI, UPLOADS_URL } from '../services/api';
@@ -10,11 +10,16 @@ import AgendaPage from './AgendaPage';
 import OnboardingModal, { useOnboarding, STORAGE_KEY as ONBOARDING_KEY } from './OnboardingModal';
 import PageGuide from '../components/PageGuide';
 import UIIcon from '../components/UIIcon';
+import TodayAppointments from '../components/TodayAppointments';
+import '../styles/flows.css';
 import WhatsAppConnection from '../components/WhatsAppConnection';
 import OfficialWhatsAppConnection from '../components/OfficialWhatsAppConnection';
 import { btnGlass } from '../styles/buttons';
 import { panel } from '../styles/surfaces';
 import { hasPremiumAccess } from '../services/entitlement';
+
+const OwnerListingPage = lazy(() => import('../features/directory/OwnerListingPage'));
+const ModerationPage = lazy(() => import('../features/directory/ModerationPage'));
 
 function Sidebar({ open, onClose }) {
   const { user, store, logout } = useAuth();
@@ -40,34 +45,35 @@ function Sidebar({ open, onClose }) {
       </div>
       <nav className="sidebar-nav">
         <span className="sidebar-group-label">Visão geral</span>
-        <Link to="/dashboard" className={`sidebar-link${isActive('/dashboard') && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/servicos') && !isActive('/dashboard/agenda') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="home" /></span> Início
+        <Link to="/dashboard" className={`sidebar-link${location.pathname === '/dashboard' && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/servicos') && !isActive('/dashboard/agenda') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="home" /></span> Hoje
         </Link>
         <Link to="/dashboard/agenda" className={`sidebar-link${isActive('/dashboard/agenda') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="calendar" /></span> Agenda
         </Link>
-        <span className="sidebar-group-label">Operação</span>
+        <Link to="/dashboard/clientes" className={`sidebar-link${isActive('/dashboard/clientes') ? ' active' : ''}`} onClick={onClose}><span className="icon"><UIIcon name="clients" /></span> Clientes</Link>
+        <details className="flow-business-nav" open={open || location.pathname !== '/dashboard' && !isActive('/dashboard/agenda') && !isActive('/dashboard/clientes')}>
+          <summary>Negócio</summary>
         <Link to="/dashboard/servicos" className={`sidebar-link${isActive('/dashboard/servicos') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="services" /></span> Serviços
         </Link>
         <Link to="/dashboard/profissionais" className={`sidebar-link${isActive('/dashboard/profissionais') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="professionals" /></span> Profissionais
         </Link>
-        <Link to="/dashboard/clientes" className={`sidebar-link${isActive('/dashboard/clientes') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="clients" /></span> Clientes
-        </Link>
         <Link to="/dashboard/chatbot" className={`sidebar-link${isActive('/dashboard/chatbot') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="bot" /></span> Chatbot
+          <span className="icon"><UIIcon name="bot" /></span> Atendimento WhatsApp
         </Link>
-        <span className="sidebar-group-label">Negócio</span>
+        <Link to="/dashboard/diretorio" className={`sidebar-link${isActive('/dashboard/diretorio') ? ' active' : ''}`} onClick={onClose}><span className="icon"><UIIcon name="store" /></span> Meu salão no mapa</Link>
+        <Link to="/explorar" className="sidebar-link" onClick={onClose}><span className="icon"><UIIcon name="search" /></span> Encontrar salões</Link>
+        {user?.role === 'admin' && <Link to="/dashboard/moderacao" className={`sidebar-link${isActive('/dashboard/moderacao') ? ' active' : ''}`} onClick={onClose}>Moderar diretório</Link>}
         <Link to="/dashboard/loja" className={`sidebar-link${isActive('/dashboard/loja') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="store" /></span> Minha loja
+          <span className="icon"><UIIcon name="store" /></span> Meu negócio
         </Link>
         <Link to="/dashboard/categorias" className={`sidebar-link${isActive('/dashboard/categorias') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="categories" /></span> Categorias
         </Link>
         <Link to="/dashboard/pedidos" className={`sidebar-link${isActive('/dashboard/pedidos') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="orders" /></span> Pedidos
+          <span className="icon"><UIIcon name="orders" /></span> Solicitações
         </Link>
         <Link to="/dashboard/bloqueios" className={`sidebar-link${isActive('/dashboard/bloqueios') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="blocked" /></span> Bloqueios
@@ -80,13 +86,14 @@ function Sidebar({ open, onClose }) {
             <span className="icon"><UIIcon name="admin" /></span> Admin
           </Link>
         )}
+        </details>
       </nav>
       <div className="sidebar-footer">
         <button className="theme-toggle-btn" onClick={toggleTheme}>
           <span className="icon"><UIIcon name="theme" /></span>
           {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
         </button>
-        <button className="sidebar-link" onClick={() => { logout(); navigate('/'); }}>
+        <button className="sidebar-link" onClick={async () => { if (await logout() !== false) navigate('/'); }}>
           <span className="icon"><UIIcon name="logout" /></span> Sair
         </button>
       </div>
@@ -95,47 +102,18 @@ function Sidebar({ open, onClose }) {
 }
 
 function OnboardingChecklist({ products, store, professionals }) {
-  const navigate = useNavigate();
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem('agtgestor_checklist_done') === 'true');
-
+  let config;
+  try { config = typeof store?.schedulingConfig === 'string' ? JSON.parse(store.schedulingConfig) : store?.schedulingConfig; } catch { config = null; }
+  const hasHours = Object.values(config?.hours || {}).some(day => day.active && /^([01]\d|2[0-3]):[0-5]\d$/.test(day.open) && /^([01]\d|2[0-3]):[0-5]\d$/.test(day.close) && day.open < day.close);
   const steps = [
-    { done: !!(store?.schedulingConfig), label: 'Configurar horários de atendimento', path: '/dashboard/loja', desc: 'Defina os dias e horários que você trabalha' },
-    { done: products.length > 0, label: 'Cadastrar pelo menos um serviço', path: '/dashboard/servicos', desc: 'Adicione seus serviços com preço e duração' },
-    { done: professionals?.length > 0, label: 'Adicionar profissionais (opcional)', path: '/dashboard/profissionais', desc: 'Cadastre sua equipe para seleção no chatbot' },
-    { done: store?.botEnabled, label: 'Conectar o WhatsApp', path: '/dashboard/chatbot', desc: 'Vincule por código no celular ou QR Code em outro aparelho' },
+    { done: Boolean(store?.name && store?.phone), label: 'Dados do salão', path: '/dashboard/loja' },
+    { done: products.some(product => product.active), label: 'Primeiro serviço', path: '/dashboard/servicos' },
+    { done: hasHours, label: 'Horários de atendimento', path: '/dashboard/loja' },
   ];
-
-  const completed = steps.filter(s => s.done).length;
-  const allDone = completed === steps.length;
-
-  if (dismissed) return null;
-
-  return (
-    <div className={`onboarding-checklist${allDone ? ' complete' : ''}`}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h3 style={{ margin: '0 0 4px', fontSize: 17 }}>{allDone ? 'Configuração completa' : 'Configure seu sistema'}</h3>
-          <p style={{ margin: 0, fontSize: 13, color: '#666' }}>{allDone ? 'Seu sistema está pronto para receber agendamentos.' : `${completed} de ${steps.length} etapas concluídas`}</p>
-        </div>
-        {allDone && <button className="btn-icon" aria-label="Fechar configuração" onClick={() => { setDismissed(true); localStorage.setItem('agtgestor_checklist_done','true'); }}><UIIcon name="close" /></button>}
-      </div>
-      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {steps.map((step, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', borderRadius: 10, padding: '10px 14px', border: `1px solid ${step.done ? '#86efac' : '#e5e7eb'}`, cursor: step.done ? 'default' : 'pointer' }}
-            onClick={() => !step.done && navigate(step.path)}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: step.done ? '#10b981' : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14, color: step.done ? '#fff' : '#aaa', fontWeight: 700 }}>
-              {step.done ? <UIIcon name="check" size={15} /> : i + 1}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: step.done ? '#059669' : '#333', textDecoration: step.done ? 'line-through' : 'none' }}>{step.label}</div>
-              <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{step.desc}</div>
-            </div>
-            {!step.done && <span style={{ color: 'var(--ink-accent)', fontSize: 13, fontWeight: 600 }}>Configurar →</span>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const next = steps.find(step => !step.done);
+  const complete = steps.filter(step => step.done).length;
+  if (!next) return <section className="flow-setup flow-setup-complete"><details><summary>Configuração básica pronta · revisar</summary><p>Confira os horários antes de compartilhar seu link.</p><div className="directory-actions"><Link to="/dashboard/loja">Dados e horários</Link><Link to="/dashboard/servicos">Serviços</Link><Link to="/dashboard/diretorio">Publicar meu salão</Link><Link to="/dashboard/chatbot">Conectar WhatsApp</Link></div></details></section>;
+  return <section className="flow-setup"><h3>{next ? 'Prepare seu primeiro atendimento' : 'Configuração básica pronta'}</h3><p>{next ? `${complete} de 3 etapas concluídas` : 'Confira os horários em sua agenda antes de compartilhar seu link.'}</p><ol>{steps.map((step, index) => <li key={step.label}><span>{step.done ? <UIIcon name="check" size={16} /> : index + 1}</span><strong>{step.label}</strong>{!step.done && <Link to={step.path}>Configurar</Link>}</li>)}</ol>{next ? <Link className="btn btn-primary" to={next.path}>Continuar configuração</Link> : <Link className="btn btn-primary" to="/dashboard/agenda">Testar na agenda</Link>}<details><summary>Equipe, divulgação e automação</summary><div className="directory-actions"><Link to="/dashboard/profissionais">{professionals.length ? 'Gerenciar equipe' : 'Adicionar equipe'}</Link><Link to="/dashboard/diretorio">Publicar meu salão</Link><Link to="/dashboard/chatbot">Conectar WhatsApp</Link></div></details></section>;
 }
 
 function DashboardHome() {
@@ -165,25 +143,26 @@ function DashboardHome() {
       {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
       <div className="page-header">
         <div>
-          <h1>Bom dia, {store?.name || 'Lojista'}</h1>
+          <h1>Hoje no {store?.name || 'seu negócio'}</h1>
           <p>Aqui está o que precisa da sua atenção hoje.</p>
         </div>
         <button onClick={() => { localStorage.removeItem(ONBOARDING_KEY); setShowOnboarding(true); }}
           style={{ ...btnGlass, padding: '7px 14px', fontSize: 13 }}>
-          Ver tutorial
+          Ajuda rápida
         </button>
       </div>
+      <TodayAppointments timeZone={store?.timeZone} />
       <OnboardingChecklist products={products} store={store} professionals={professionals} />
 
       <div className="store-link-card">
-        <h3><UIIcon name="link" size={18} /> Link da sua vitrine</h3>
+        <h3><UIIcon name="link" size={18} /> Sua página de serviços</h3>
         <div className="store-link-url">
           <span style={{ flex: 1 }}>{storeUrl}</span>
           <button className="btn btn-primary btn-sm" onClick={copyLink}>
             <UIIcon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copiado' : 'Copiar'}
           </button>
           <a href={storeUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
-            <UIIcon name="open" size={16} /> Abrir loja
+            <UIIcon name="open" size={16} /> Ver minha página
           </a>
         </div>
       </div>
@@ -206,24 +185,12 @@ function DashboardHome() {
         </div>
         <div className="stat-card">
           <div className="stat-icon"><UIIcon name="phone" /></div>
-          <div className="stat-value stat-value-status">{store?.phone ? 'Ativo' : 'Pendente'}</div>
-          <div className="stat-label">WhatsApp configurado</div>
+          <div className="stat-value stat-value-status">{store?.officialStatus === 'connected' ? 'Conectado' : 'Ver conexão'}</div>
+          <div className="stat-label">Atendimento WhatsApp</div>
         </div>
       </div>
 
-      {(!store?.phone || products.length === 0) && (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <h3 style={{ marginBottom: '12px' }}>Complete sua configuração</h3>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>
-            {!store?.phone && 'Configure seu WhatsApp em "Minha Loja". '}
-            {products.length === 0 && 'Adicione seus primeiros serviços em "Serviços".'}
-          </p>
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            {!store?.phone && <Link to="/dashboard/loja" className="btn btn-primary">Configurar Loja</Link>}
-            {products.length === 0 && <Link to="/dashboard/servicos" className="btn btn-secondary">Adicionar Serviços</Link>}
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }
@@ -1304,6 +1271,7 @@ function ChatbotPaywall() {
 }
 
 export default function Dashboard() {
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { store } = useAuth();
   const isPremium = hasPremiumAccess(store);
@@ -1314,13 +1282,16 @@ export default function Dashboard() {
       <button className="menu-toggle" aria-label="Abrir navegação" onClick={() => setSidebarOpen(true)}><UIIcon name="menu" /></button>
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 99}} />}
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="main-content">
+      <nav className="flow-mobile-nav" aria-label="Navegação principal">{[['/dashboard', 'Hoje', 'home'], ['/dashboard/agenda', 'Agenda', 'calendar'], ['/dashboard/clientes', 'Clientes', 'clients']].map(([path, label, icon]) => <Link key={path} to={path} aria-current={location.pathname === path ? 'page' : undefined}><UIIcon name={icon} size={20} />{label}</Link>)}<button type="button" onClick={() => setSidebarOpen(true)}><UIIcon name="store" size={20} />Negócio</button></nav>
+      <main className="main-content flow-professional-main">
         <Routes>
           <Route path="" element={<DashboardHome />} />
+          <Route path="diretorio" element={<Suspense fallback={<p role="status">Carregando perfil…</p>}><OwnerListingPage /></Suspense>} />
+          <Route path="moderacao" element={<Suspense fallback={<p role="status">Carregando moderação…</p>}><ModerationPage /></Suspense>} />
           <Route path="loja" element={<StoreSettings />} />
           <Route path="categorias" element={<CategoriesPage />} />
           <Route path="servicos" element={<ServicesPage />} />
-          <Route path="agenda" element={<AgendaPage />} />
+          <Route path="agenda" element={<AgendaPage timeZone={store?.timeZone} />} />
           <Route path="chatbot" element={isPremium ? <ChatbotPage /> : <ChatbotPaywall />} />
           <Route path="pedidos" element={<OrdersPage />} />
           <Route path="billing" element={<BillingPage />} />

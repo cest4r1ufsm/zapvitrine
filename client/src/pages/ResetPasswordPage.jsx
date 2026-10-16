@@ -33,7 +33,7 @@ export default function ResetPasswordPage() {
       <div className="auth-page">
         <div className="auth-container">
           <div className="auth-logo">
-            <h1>AGTgestor</h1>
+            <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </div>
           <div className="auth-card">
             <div className="auth-error-state">
@@ -88,7 +88,7 @@ export default function ResetPasswordPage() {
       <div className="auth-page">
         <div className="auth-container">
           <div className="auth-logo">
-            <h1>AGTgestor</h1>
+            <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </div>
           <div className="auth-card">
             <div className="auth-success-state">
@@ -111,7 +111,7 @@ export default function ResetPasswordPage() {
     <div className="auth-page">
       <div className="auth-container">
         <div className="auth-logo">
-          <h1>AGTgestor</h1>
+          <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           <p>Sua vitrine digital com WhatsApp</p>
         </div>
 

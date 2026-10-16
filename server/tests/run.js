@@ -5,6 +5,22 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const SUITES = [
+  ['Diagnóstico seguro de integrações', 'integration-readiness.test.js'],
+  ['Stripe: reconciliação e isolamento de assinaturas', 'stripe-reconciliation.test.js'],
+  ['Optional Stripe provider', 'billing-optional.test.js'],
+  ['Configuração segura e fusos nacionais', 'platform.test.js'],
+  ['Imagens: decodificação e remoção segura', 'storage.test.js'],
+  ['Migração de imagens existentes', 'media-migration.test.js'],
+  ['Diretório, favoritos e reservas públicas', 'directory.test.js'],
+  ...(process.env.TEST_POSTGRES_URL && process.env.TEST_POSTGRES_DISPOSABLE === 'yes' ? [
+    ['PostgreSQL: concorrência e transações', 'platform-postgres.test.js'],
+    ['Clientes PostgreSQL: ranking e isolamento HTTP', 'clients-postgres.test.js'],
+    ['PostGIS: pesquisa geográfica real', 'directory-postgis.test.js'],
+    ['Reservas públicas entre dois processos', 'directory-consumer-postgres.test.js'],
+    ['Workers paralelos por salão', 'inbox-postgres.test.js'],
+    ['Inicialização com banco real', 'startup-smoke.test.js'],
+  ] : []),
+  ['Revocable sessions and CSRF', 'session-security.test.js'],
   ['WhatsApp oficial: autorização, assinatura e durabilidade', 'official-whatsapp.test.js'],
   ['Motor de disponibilidade (unidade)', 'availability.test.js'],
   ['Rotas de agenda (integração)', 'routes.test.js'],
@@ -19,6 +35,7 @@ const SUITES = [
 ];
 
 let falhou = false;
+if (!process.env.TEST_POSTGRES_URL) console.log('PostgreSQL/PostGIS não executados: forneça TEST_POSTGRES_URL e TEST_POSTGRES_DISPOSABLE=yes para a validação de produção.');
 const resultados = [];
 
 for (const [titulo, arquivo] of SUITES) {

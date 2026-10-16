@@ -116,7 +116,7 @@ async function handleIncomingMessage(storeId, socket, from, text, msg) {
       },
     });
 
-    if (!store || store.officialPhoneId || !store.botEnabled || !isEligible(store)) return;
+    if (!store || !store.active || store.officialPhoneId || !store.botEnabled || !isEligible(store)) return;
 
     const msgLower = text.toLowerCase();
     const persisted = await prisma.whatsAppConversation.findUnique({ where: { id: persistedKey } });
@@ -177,8 +177,8 @@ async function handleIncomingMessage(storeId, socket, from, text, msg) {
         if (state) {
           await prisma.whatsAppConversation.upsert({
             where: { id: persistedKey },
-            create: { id: persistedKey, state: JSON.stringify(state) },
-            update: { state: JSON.stringify(state) },
+            create: { id: persistedKey, storeId, state: JSON.stringify(state) },
+            update: { storeId, state: JSON.stringify(state) },
           });
         } else await prisma.whatsAppConversation.deleteMany({ where: { id: persistedKey } });
       } catch { console.error('Falha ao salvar conversa do chatbot.'); }
@@ -697,18 +697,18 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
     // a confirmação o cliente digita as observações, e nesse intervalo outra
     // pessoa (ou o painel) pode ter pegado o slot.
     const order = await withStoreLock(store.id, async () => {
+      let resource = { professionalId: null };
       if (isSchedule) {
-        const slots = await getAvailableSlots(
-          prisma, store.id, convo.data.date, convo.productId, convo.data.professionalId ?? null,
-        );
-        if (!slots.includes(convo.data.time)) return null;
+        resource = await require('../utils/availability').assignAvailableProfessional(prisma, store.id,
+          convo.data.date, convo.productId, convo.data.professionalId ?? null, convo.data.time);
+        if (!resource) return null;
       }
 
       return prisma.order.create({
         data: {
           storeId: store.id,
           productId: convo.productId,
-          professionalId: isSchedule ? (convo.data.professionalId ?? null) : null,
+          professionalId: resource.professionalId,
           customerName: convo.data.name,
           customerPhone: customerPhone,
           customerAddress: convo.data.address || null,
@@ -718,6 +718,9 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
           notes: convo.data.notes || null,
           status: 'pending',
           totalPrice: convo.productPrice,
+          priceCents: Math.round(convo.productPrice * 100),
+          reservedDurationMinutes: currentProduct.duration,
+          reservedBufferMinutes: currentProduct.bufferTime || 0,
         },
       });
     });
@@ -747,6 +750,7 @@ async function saveOrder(store, socket, from, convoKey, convo, msg) {
     if (convo.data.address) resposta += `📍 *Endereço:* ${convo.data.address}\n`;
     if (convo.data.notes) resposta += `💬 *Obs:* ${convo.data.notes}\n`;
     resposta += `\n✅ Status: *Aguardando confirmação*\n`;
+    if (isSchedule && store.slug) resposta += `\n📍 Veja a localização do estabelecimento:\n${(process.env.APP_URL || 'https://agentegestor.com.br').replace(/\/$/, '')}/loja/${encodeURIComponent(store.slug)}#localizacao\n`;
     resposta += `\nO lojista verá seu pedido e entrará em contato. Obrigado! 😊\n\n`;
     resposta += `_Envie "menu" para voltar ao início_`;
 
@@ -804,6 +808,7 @@ async function sendText(socket, to, text) {
 
 // Restore sessions on server startup (only restore fully authenticated sessions)
 async function restoreSessions() {
+  if (process.env.NODE_ENV === 'production') return;
   if (!fs.existsSync(sessionsDir)) return;
   const dirs = fs.readdirSync(sessionsDir).filter(d => /^store_[1-9]\d*$/.test(d));
   for (const dir of dirs) {
@@ -834,7 +839,7 @@ async function restoreSessions() {
 
     // Não restaurar sessões de lojas sem assinatura/trial válido
     const store = await prisma.store.findUnique({ where: { id: storeId } });
-    if (!store || store.officialPhoneId || !isEligible(store)) {
+    if (!store || !store.active || store.officialPhoneId || !isEligible(store)) {
       console.log(`⏭️ Loja #${storeId} sem assinatura elegível — sessão não restaurada`);
       continue;
     }
@@ -851,7 +856,7 @@ async function restoreSessions() {
 async function sendMessageToCustomer(storeId, phone, text) {
   try {
     const store = await prisma.store.findUnique({ where: { id: storeId } });
-    if (!store || store.officialPhoneId || !isEligible(store)) return false;
+    if (!store || !store.active || store.officialPhoneId || !isEligible(store)) return false;
     const session = sessions.get(storeId);
     if (!session || session.status !== 'connected' || !session.socket) {
       console.log(`[Whatsapp] Loja #${storeId} não conectada para envio de mensagem.`);

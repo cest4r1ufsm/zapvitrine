@@ -23,7 +23,7 @@ router.get('/', auth, async (req, res) => {
     }
     // Nunca enviar segredos/ids internos ao navegador (o painel não usa esses campos;
     // subscriptionStatus, plan e trialEndsAt continuam presentes)
-    res.json(safeStore(store));
+    res.json({ ...safeStore(store), timeZone: await require('../utils/timeZone').storeTimeZone(prisma, store.id) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar loja' });
@@ -66,7 +66,7 @@ router.put('/', auth, async (req, res) => {
       },
     });
 
-    res.json(safeStore(store));
+    res.json({ ...safeStore(store), timeZone: await require('../utils/timeZone').storeTimeZone(prisma, store.id) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao atualizar loja' });
@@ -80,8 +80,7 @@ router.post('/logo', auth, upload.single('logo'), async (req, res) => {
       return res.status(400).json({ error: 'Envie uma imagem' });
     }
 
-    const { filename } = await processImage(req.file);
-    const logoUrl = `/uploads/${filename}`;
+    const { url: logoUrl } = await processImage(req.file);
     const store = await prisma.store.update({
       where: { userId: req.user.id },
       data: { logoUrl },
@@ -102,8 +101,7 @@ router.post('/banner', auth, upload.single('banner'), async (req, res) => {
       return res.status(400).json({ error: 'Envie uma imagem' });
     }
 
-    const { filename } = await processImage(req.file);
-    const bannerUrl = `/uploads/${filename}`;
+    const { url: bannerUrl } = await processImage(req.file);
     const store = await prisma.store.update({
       where: { userId: req.user.id },
       data: { bannerUrl },

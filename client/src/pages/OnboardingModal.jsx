@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import UIIcon from '../components/UIIcon';
 import { btnPrimary, btnGlass } from '../styles/buttons';
@@ -8,62 +8,9 @@ import { tint } from '../styles/surfaces';
 const STORAGE_KEY = 'agtgestor_onboarding_done';
 
 const STEPS = [
-  {
-    icon: 'home',
-    title: 'Bem-vindo ao AGTGestor',
-    description: 'Você tem em mãos um sistema completo de agendamentos com chatbot no WhatsApp. Em poucos minutos, seus clientes poderão marcar horários por lá. Tudo funciona de forma automática, sem depender de você.',
-    tip: null,
-    action: null,
-  },
-  {
-    icon: 'store',
-    title: 'Configure sua loja',
-    description: 'Primeiro, vá em "Minha Loja" e preencha suas informações: nome, telefone e endereço. É aqui que você também define os horários de funcionamento para o sistema saber quando oferecer agendamentos.',
-    tip: 'Na seção "Configuração de agenda", ative os dias que você atende e defina os horários de início e fim de cada dia.',
-    action: { label: 'Ir para Minha Loja', path: '/dashboard/loja' },
-  },
-  {
-    icon: 'services',
-    title: 'Cadastre seus serviços',
-    description: 'Em "Serviços", adicione tudo o que você oferece, como corte, barba e manicure. Para cada serviço, defina o preço e a duração em minutos. O sistema usa esse tempo para calcular automaticamente os horários disponíveis.',
-    tip: 'Um corte de 30 min + 10 min de intervalo significa que o próximo cliente poderá agendar 40 min depois. Configure isso no campo "Intervalo após".',
-    action: { label: 'Ir para Serviços', path: '/dashboard/servicos' },
-  },
-  {
-    icon: 'professionals',
-    title: 'Adicione seus profissionais',
-    description: 'Se você tem uma equipe (vários cabeleireiros, manicures, etc.), cadastre cada um em "Profissionais". Quando um cliente agendar pelo WhatsApp, ele poderá escolher com quem quer ser atendido.',
-    tip: 'Se você trabalha sozinho, pode pular essa etapa. O sistema funciona normalmente sem profissionais cadastrados.',
-    action: { label: 'Ir para Profissionais', path: '/dashboard/profissionais' },
-  },
-  {
-    icon: 'blocked',
-    title: 'Bloqueie horários de folga',
-    description: 'Em "Bloqueios", você pode marcar datas ou dias em que não vai atender, como feriados, férias e folgas. O chatbot respeita esses bloqueios e nunca oferece um horário ocupado ao cliente.',
-    tip: 'Você pode bloquear toda segunda-feira de forma recorrente ou uma data específica como 24/12, sem criar serviços falsos para ocupar tempo.',
-    action: { label: 'Ir para Bloqueios', path: '/dashboard/bloqueios' },
-  },
-  {
-    icon: 'bot',
-    title: 'Conecte o WhatsApp',
-    description: 'Em "Chatbot", informe seu número e gere um código para confirmar no próprio WhatsApp. Se estiver no computador, você também pode usar o QR Code. Depois de conectar, o bot oferece seus serviços e horários disponíveis.',
-    tip: 'O chatbot funciona 24h. Se um cliente mandar mensagem durante a madrugada, o sistema responde e agenda; você vê tudo na Agenda quando acordar.',
-    action: { label: 'Ir para Chatbot', path: '/dashboard/chatbot' },
-  },
-  {
-    icon: 'calendar',
-    title: 'Gerencie sua agenda',
-    description: 'Na "Agenda", você tem uma visão semanal de todos os agendamentos. Pode confirmar, concluir ou cancelar cada um. Também pode criar agendamentos manualmente para clientes que ligam ou chegam pessoalmente.',
-    tip: 'Na seção "Clientes", você encontra o histórico completo de cada cliente: visitas, serviços e data do último atendimento.',
-    action: { label: 'Ir para Agenda', path: '/dashboard/agenda' },
-  },
-  {
-    icon: 'check',
-    title: 'Tudo pronto',
-    description: 'Agora é só compartilhar seu número de WhatsApp com os clientes e deixar o sistema trabalhar por você. Sempre que precisar, este tutorial está disponível no menu "Início".',
-    tip: null,
-    action: null,
-  },
+  { icon: 'store', title: 'Seu salão, organizado', description: 'Cadastre seu negócio, um serviço e os horários de atendimento.', tip: null, action: { label: 'Configurar meu negócio', path: '/dashboard/loja' } },
+  { icon: 'calendar', title: 'Sua rotina começa em Hoje', description: 'Veja seus atendimentos. Use a Agenda para adicionar ou confirmar horários.', tip: null, action: { label: 'Abrir agenda', path: '/dashboard/agenda' } },
+  { icon: 'check', title: 'Avance no seu ritmo', description: 'Equipe, página pública e WhatsApp ficam no menu Negócio.', tip: null, action: null },
 ];
 
 export default function OnboardingModal({ onClose }) {
@@ -138,15 +85,6 @@ export default function OnboardingModal({ onClose }) {
 export function useOnboarding() {
   const [show, setShow] = useState(false);
 
-  useEffect(() => {
-    const done = localStorage.getItem(STORAGE_KEY);
-    if (!done) {
-      // Small delay so the dashboard loads first
-      const t = setTimeout(() => setShow(true), 800);
-      return () => clearTimeout(t);
-    }
-  }, []);
-
   return { show, setShow };
 }
 
@@ -154,13 +92,13 @@ export { STORAGE_KEY };
 
 const s = {
   overlay:     { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 },
-  box:         { background: '#fff', borderRadius: 20, width: '100%', maxWidth: 520, padding: '32px 32px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', position: 'relative' },
+  box:         { background: 'var(--bg-card)', borderRadius: 16, width: '100%', maxWidth: 520, padding: '32px 32px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', position: 'relative' },
   dots:        { display: 'flex', gap: 6, marginBottom: 8 },
   dot:         { width: 8, height: 8, borderRadius: '50%', transition: 'background 0.3s' },
   counter:     { fontSize: 12, color: '#aaa', marginBottom: 20 },
   iconWrap:    { fontSize: 56, marginBottom: 16, lineHeight: 1 },
-  title:       { fontSize: 22, fontWeight: 800, marginBottom: 12, color: '#111', margin: '0 0 12px' },
-  description: { fontSize: 15, lineHeight: 1.7, color: '#444', margin: '0 0 16px' },
+  title:       { fontSize: 22, fontWeight: 800, marginBottom: 12, color: 'var(--text-primary)', margin: '0 0 12px' },
+  description: { fontSize: 15, lineHeight: 1.7, color: 'var(--text-secondary)', margin: '0 0 16px' },
   tip:         { ...tint, padding: '12px 16px', fontSize: 13, textAlign: 'left', width: '100%', boxSizing: 'border-box', marginBottom: 8, lineHeight: 1.6 },
   actions:     { display: 'flex', gap: 8, width: '100%', marginTop: 20, alignItems: 'center', flexWrap: 'wrap' },
   btnPrimary:  { ...btnPrimary, padding: '11px 20px', fontWeight: 700, fontSize: 14 },

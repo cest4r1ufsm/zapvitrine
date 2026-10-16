@@ -6,6 +6,19 @@ const { createWhatsAppSessions, normalizeConnectOptions, hasAuthenticatedCreds, 
 const PHONE = '5511999990000'; // Valor sintético; nenhum teste acessa rede, arquivos ou contas reais.
 const pairing = { method: 'pairing', phoneNumber: PHONE };
 const settle = async () => { for (let i = 0; i < 15; i++) await new Promise(resolve => setImmediate(resolve)); };
+test('production rejects legacy connections before reading credentials or creating sockets', async () => {
+  const previous = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const f = fixture();
+    await assert.rejects(f.startSession(1, pairing), error => error.code === 'OFFICIAL_ONLY' && error.status === 403);
+    assert.equal(f.reads.length, 0);
+    assert.equal(f.writes.length, 0);
+    assert.equal(f.sockets.length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous;
+  }
+});
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -447,4 +460,11 @@ test('official integration prevents new legacy sessions and queued responses eve
     { key: { id: 'handoff', remoteJid: PHONE + '@s.whatsapp.net' }, message: { conversation: 'menu' } },
   ] });
   await settle(); assert.equal(calls.length, 0); await f.stopSession(1);
+});
+
+
+test('inactive store cannot create a socket or process messages', async () => {
+  const f = fixture({ registered: true }); f.store.active = false;
+  await assert.rejects(f.startSession(1), { code: 'SUBSCRIPTION_REQUIRED' });
+  assert.equal(f.sockets.length, 0);
 });

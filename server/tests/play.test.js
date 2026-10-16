@@ -156,7 +156,7 @@ module.exports = async function run() {
       const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
       const r = await fetch(BASE + rota, {
         method: metodo,
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5007', Authorization: 'Bearer ' + token },
         body: corpo ? JSON.stringify(corpo) : undefined,
       });
       return { status: r.status, body: await r.json().catch(() => null) };
@@ -178,7 +178,7 @@ module.exports = async function run() {
       const tokenG = jwt.sign({ userId: g.user.id }, process.env.JWT_SECRET);
       const rg = await fetch('http://127.0.0.1:' + serverG.address().port + '/api/play/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tokenG },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5007', Authorization: 'Bearer ' + tokenG },
         body: JSON.stringify({ purchaseToken: 'tok-g', productId: PRODUTO }),
       });
       const bodyG = await rg.json();

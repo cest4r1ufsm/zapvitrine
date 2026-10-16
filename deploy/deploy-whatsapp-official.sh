@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Retired after the national PostgreSQL/PostGIS migration. This former SQLite
+# recipe must never stop a production process or mutate its database now.
+printf '%s\n' 'Este script SQLite foi desativado. Use o plano PostgreSQL/PostGIS em infra/terraform/README.md e rode node server/scripts/check-integrations.js no ambiente alvo.' >&2
+exit 1
+
 # Run AFTER updating this checkout and reviewing its changes. No implicit git reset,
 # secret changes, database deletion or --accept-data-loss is performed.
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

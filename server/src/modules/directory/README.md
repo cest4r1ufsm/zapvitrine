@@ -1,0 +1,15 @@
+# Directory module operations
+
+- Mount `routes/directory` at `/api/v1` with shared request limits, CSRF protection for cookie mutations, security headers and authentication session middleware.
+- Generate Prisma and deploy schema migrations before enabling routes. Production requires PostgreSQL and canonical `prisma/postgresql/002-spatial-integrity.sql` and `003-directory-hours.sql` after the baseline. SQLite support is restricted to development/tests and refuses unbounded search.
+- Run `node src/modules/directory/providers.js` explicitly to import the national IBGE municipality catalog. Schedule a periodic idempotent refresh. No runtime query depends on IBGE availability. Review municipal timezone exceptions; the listing owner must confirm IANA timezone (AM/PA/PE can have exceptions).
+- `MAPBOX_GEOCODING_TOKEN` is server-only. Set `MAPBOX_PERMANENT_GEOCODING=true` only after a permitted permanent-geocoding account is enabled. `DIRECTORY_GEOCODE_DAILY_LIMIT` bounds paid lookups globally. Provider failure preserves drafts and returns 503; manual map confirmation remains available. Never log URL/access tokens or exact search location.
+- Geocoder quotas count across workers using atomic database updates; periodically remove DirectoryQuota rows where expiresAt < now. The scheduled cleanup must not delete current buckets. Configure provider-side spending alerts as an independent control.
+- All edits withdraw publication and return to draft, requiring verified-email submission and explicit administrator approval. Suspension prevents self-republication. Moderation actions are audited. A paid subscription is never checked for public discovery.
+- An approximate listing stores exact coordinates privately but rounds public coordinates to a 0.01 degree cell. Search radius, distances and clusters always use the public cell to avoid exact-position inference. Do not expose private addresses in other store APIs, routing links, logs, exports or metadata. Approximate coordinates are not an anonymity guarantee in sparsely populated areas; review descriptions/images for accidental address disclosure.
+- Search accepts coordinates+radius or municipality. Brazil-wide clusters accept bbox (-74,-34,-28,6); no one-region gate exists. Pagination is capped at 1000 and exact totals are deliberately not returned. Cluster coordinates aggregate public points; counts are bounded server-side.
+- Combined price/service filters use ProductServiceTag so the same active product must match both. Owners map actual catalog products in productServices; unmapped products do not match a combined filter.
+- Capacity, failover, geocoder coverage and PostGIS EXPLAIN/load acceptance require a provisioned staging PostgreSQL instance. SQLite tests do not prove these properties.
+
+- Overnight hours carry into the next local date. A holidayHours entry overrides the entire date, including previous-night carry; [] means closed. Owners explicitly confirm coordinates before submission. Geocoding returns confidence and always requests manual confirmation.
+

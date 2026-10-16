@@ -211,8 +211,7 @@ router.post('/:id/image', auth, upload.single('image'), async (req, res) => {
     });
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    const { filename } = await processImage(req.file);
-    const imageUrl = `/uploads/${filename}`;
+    const { url: imageUrl } = await processImage(req.file);
     const updated = await prisma.product.update({
       where: { id: product.id },
       data: { imageUrl },

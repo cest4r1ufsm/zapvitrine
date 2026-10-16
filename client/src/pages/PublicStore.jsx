@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicAPI, UPLOADS_URL } from '../services/api';
 import UIIcon from '../components/UIIcon';
+import StoreLocation from '../components/StoreLocation';
 
 function formatPrice(value) {
   return 'R$ ' + value.toFixed(2).replace('.', ',');
@@ -17,7 +18,7 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    let msg = `*Novo pedido via AGTGestor*\n\n`;
+    let msg = `*Solicitação de serviços via AGTGestor*\n\n`;
     msg += `*${storeName}*\n\n`;
     msg += `*Itens:*\n`;
     cart.forEach(item => {
@@ -26,7 +27,7 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
     msg += `\n*Total: ${formatPrice(total)}*\n`;
     if (customerName) msg += `\nNome: ${customerName}`;
     if (customerPhone) msg += `\nTelefone: ${customerPhone}`;
-    msg += `\n\nPedido em ${dateStr} às ${timeStr}`;
+    msg += `\n\nSolicitação enviada em ${dateStr} às ${timeStr}`;
 
     const cleanPhone = phone.replace(/\D/g, '');
     const whatsPhone = cleanPhone.startsWith('55') ? cleanPhone : '55' + cleanPhone;
@@ -39,8 +40,8 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
       <div className="cart-panel-overlay" onClick={onClose} />
       <div className="cart-panel-content">
         <div className="cart-panel-header">
-          <h2>Seu pedido</h2>
-          <button className="cart-close-btn" aria-label="Fechar pedido" onClick={onClose}><UIIcon name="close" /></button>
+          <h2>Sua seleção</h2>
+          <button className="cart-close-btn" aria-label="Fechar seleção" onClick={onClose}><UIIcon name="close" /></button>
         </div>
         <div className="cart-items">
           {cart.map((item, i) => (
@@ -50,9 +51,9 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
                 <span>{formatPrice(item.price)}</span>
               </div>
               <div className="cart-item-qty">
-                <button onClick={() => onUpdateQty(item.id, item.qty - 1)}>−</button>
+                <button aria-label={`Remover uma unidade de ${item.name}`} onClick={() => onUpdateQty(item.id, item.qty - 1)}>−</button>
                 <span>{item.qty}</span>
-                <button onClick={() => onUpdateQty(item.id, item.qty + 1)}>+</button>
+                <button aria-label={`Adicionar uma unidade de ${item.name}`} onClick={() => onUpdateQty(item.id, item.qty + 1)}>+</button>
               </div>
             </div>
           ))}
@@ -60,20 +61,21 @@ function CartPanel({ cart, onUpdateQty, onClose, phone, storeName }) {
         <div className="cart-panel-footer">
           <div className="checkout-form">
             <div className="form-group">
-              <label>Seu Nome</label>
-              <input className="form-input" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Como quer ser chamado?" />
+              <label htmlFor="selection-name">Nome (opcional)</label>
+              <input id="selection-name" autoComplete="name" maxLength={100} className="form-input" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Como quer ser chamado?" />
             </div>
             <div className="form-group">
-              <label>Seu Telefone (opcional)</label>
-              <input className="form-input" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(11) 99999-9999" />
+              <label htmlFor="selection-phone">WhatsApp (opcional)</label>
+              <input id="selection-phone" type="tel" autoComplete="tel" maxLength={20} className="form-input" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="(11) 99999-9999" />
             </div>
           </div>
           <div className="cart-total">
-            <span>Total</span>
+            <span>Valor dos serviços</span>
             <span>{formatPrice(total)}</span>
           </div>
+          <p className="booking-hint">Escolha dia e horário na conversa. O salão confirma o atendimento.</p>
           <button className="whatsapp-btn" onClick={sendWhatsApp}>
-            <UIIcon name="chat" size={17} /> Enviar pedido via WhatsApp
+            <UIIcon name="chat" size={17} /> Continuar no WhatsApp
           </button>
         </div>
       </div>
@@ -183,8 +185,8 @@ export default function PublicStore() {
       {filteredProducts.length === 0 ? (
         <div className="empty-state" style={{ padding: '80px 20px' }}>
           <div className="empty-icon"><UIIcon name="orders" size={28} /></div>
-          <h3>Nenhum produto disponível</h3>
-          <p>Esta loja ainda não adicionou produtos</p>
+          <h3>Nenhum serviço disponível</h3>
+          <p>O salão ainda não publicou seus serviços</p>
         </div>
       ) : (
         <div className="products-public-grid">
@@ -198,7 +200,7 @@ export default function PublicStore() {
                 {product.description && <p>{product.description}</p>}
                 <div className="product-public-footer">
                   <span className="product-public-price">{formatPrice(product.price)}</span>
-                  <button className="product-add-btn" onClick={(e) => { e.stopPropagation(); addToCart(product); }}>+</button>
+                  <button aria-label={`Selecionar ${product.name}`} className="product-add-btn" onClick={(e) => { e.stopPropagation(); addToCart(product); }}>+</button>
                 </div>
               </div>
             </div>
@@ -206,12 +208,14 @@ export default function PublicStore() {
         </div>
       )}
 
+      <StoreLocation key={store.address} name={store.name} address={store.address} />
+
       {totalItems > 0 && (
         <div className="cart-float">
-          <div className="cart-bar" onClick={() => setShowCart(true)}>
+          <div className="cart-bar" role="button" tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setShowCart(true); } }} onClick={() => setShowCart(true)}>
             <div className="cart-count">{totalItems}</div>
             <div className="cart-info">
-              <span>Ver pedido</span>
+              <span>Ver seleção</span>
               <strong>{formatPrice(totalPrice)}</strong>
             </div>
             <UIIcon name="chat" size={20} />

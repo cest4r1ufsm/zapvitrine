@@ -5,7 +5,7 @@ const { auth } = require('../middleware/auth');
 const official = require('../services/officialWhatsApp');
 const { requirePremium } = require('../middleware/premium');
 const rateLimit = require('express-rate-limit');
-const limit = rateLimit({ windowMs: 15 * 60000, limit: 20, keyGenerator: req => String(req.user.id), standardHeaders: true, legacyHeaders: false });
+const limit = rateLimit({ ...require('../lib/sharedLimits').limitStore('official-connect'), windowMs: 15 * 60000, limit: 20, keyGenerator: req => String(req.user.id), standardHeaders: true, legacyHeaders: false });
 const router = express.Router();
 router.use(auth);
 async function mutationLease(req, res, next) {
@@ -18,7 +18,8 @@ async function mutationLease(req, res, next) {
       try { await prisma.whatsAppWorkerLease.create({ data: { id, owner, expiresAt } }); }
       catch (err) { if (err.code === 'P2002') return res.status(409).json({ error: 'Conexão já em andamento. Aguarde antes de tentar novamente.' }); throw err; }
     }
-    res.once('finish', () => prisma.whatsAppWorkerLease.deleteMany({ where: { id, owner } }).catch(() => {}));
+    const release = () => prisma.whatsAppWorkerLease.deleteMany({ where: { id, owner } }).catch(() => {});
+    res.once('finish', release);
     next();
   } catch (err) { next(err); }
 }
@@ -63,6 +64,7 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
     const debug = await official.graph(`debug_token?${debugQuery}`, `${process.env.META_APP_ID}|${process.env.META_APP_SECRET}`);
     const info = debug.data;
     const permissions = info?.granular_scopes || [];
+    if ((info?.expires_at && Number(info.expires_at) * 1000 <= Date.now()) || (info?.data_access_expires_at && Number(info.data_access_expires_at) * 1000 <= Date.now())) throw new Error('Autorização expirada. Inicie novamente.');
     if (!info?.is_valid || String(info.app_id) !== process.env.META_APP_ID || !['whatsapp_business_management', 'whatsapp_business_messaging'].every(scope => info.scopes?.includes(scope))) throw new Error('Permissões do WhatsApp incompletas');
     const ownsAsset = ['whatsapp_business_management', 'whatsapp_business_messaging'].every(scope => permissions.filter(p => p.scope === scope).flatMap(p => p.target_ids || []).map(String).includes(String(wabaId)));
     if (!ownsAsset) throw new Error('Conta WhatsApp não pertence à autorização recebida');
@@ -77,7 +79,9 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
       prisma.whatsAppInbox.updateMany({ where: { storeId: store.id, status: { in: ['pending', 'processing'] } }, data: { status: 'done', lastError: 'Identidade da conexão substituída' } }),
       prisma.whatsAppConversation.deleteMany({ where: { id: { startsWith: `${store.id}:` } } }),
     ]);
-    const updated = await prisma.store.update({ where: { id: store.id }, data: { botEnabled: store.botEnabled, officialPhoneId: String(phone.id), officialWabaId: String(wabaId), officialToken: official.encrypt(token), officialTokenExpiresAt: info.expires_at ? new Date(info.expires_at * 1000) : null, officialDisplayPhone: phone.display_phone_number, officialVerifiedName: phone.verified_name, officialStatus: 'connected', officialLastError: null } });
+    const authorizationDeadlines = [info.expires_at, info.data_access_expires_at].map(Number).filter(value => Number.isFinite(value) && value > 0);
+    const tokenExpiresAt = authorizationDeadlines.length ? new Date(Math.min(...authorizationDeadlines) * 1000) : null;
+    const updated = await prisma.store.update({ where: { id: store.id }, data: { botEnabled: store.botEnabled, officialPhoneId: String(phone.id), officialWabaId: String(wabaId), officialToken: official.encrypt(token), officialTokenExpiresAt: tokenExpiresAt, officialDisplayPhone: phone.display_phone_number, officialVerifiedName: phone.verified_name, officialStatus: 'connected', officialLastError: null } });
     res.json({ connection: official.connection(updated) });
   } catch (err) {
     const message = err.metaCode ? `Meta recusou a conexão (código ${err.metaCode}). Verifique as permissões e a elegibilidade.` : err.message;
@@ -91,7 +95,7 @@ router.delete('/disconnect', limit, mutationLease, async (req, res) => {
   // Subscription belongs to the WABA (possibly multiple numbers); do not unsubscribe other stores.
   await prisma.whatsAppSignupState.deleteMany({ where: { storeId: store.id } });
   const updated = await prisma.store.update({ where: { id: store.id }, data: { botEnabled: false, officialPhoneId: null, officialWabaId: null, officialToken: null, officialTokenExpiresAt: null, officialDisplayPhone: null, officialVerifiedName: null, officialStatus: 'disconnected', officialLastError: null } });
-  await prisma.whatsAppInbox.updateMany({ where: { storeId: store.id, status: 'pending' }, data: { status: 'done', lastError: 'Integração desconectada' } });
+  await prisma.whatsAppInbox.updateMany({ where: { storeId: store.id, status: { in: ['pending', 'processing'] } }, data: { status: 'done', lastError: 'Integração desconectada' } });
   await prisma.whatsAppConversation.deleteMany({ where: { id: { startsWith: `${store.id}:` } } });
   res.json({ connection: official.connection(updated) });
 });

@@ -1,3 +1,5 @@
+> Histórico: este procedimento descreve a instalação SQLite anterior. Para o perfil VPS PostgreSQL/PostGIS, use [VPS_BASICO.md](VPS_BASICO.md), incluindo backup e ensaio de restauração. Não aplique restauração SQLite sobre o banco novo.
+
 # Backup e Restore — AGTgestor
 
 ## Instalação do backup (uma vez, no VPS como root)

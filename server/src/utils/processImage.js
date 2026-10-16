@@ -3,7 +3,6 @@ const sharp = require('sharp');
 // ao tentar apagar/reescrever o arquivo de entrada logo após o processamento.
 sharp.cache(false);
 const fs = require('fs');
-const path = require('path');
 
 const MAX_WIDTH = 1200;
 const WEBP_QUALITY = 82;
@@ -25,24 +24,22 @@ async function processImage(file) {
   const inputPath = file.path;
 
   let outFilename;
-  let outPath;
   let buf;
 
   try {
-    const meta = await sharp(inputPath).metadata();
+    const meta = await sharp(inputPath, { limitInputPixels: 20000000 }).metadata();
+    if ((meta.pages || 1) > 60 || meta.width * meta.height * (meta.pages || 1) > 40000000) throw new Error('Imagem muito grande');
 
     if (meta.format === 'gif' && (meta.pages || 1) > 1) {
       // GIF animado: reencodar preservando frames
       outFilename = file.filename;
-      outPath = inputPath;
-      buf = await sharp(inputPath, { animated: true })
+      buf = await sharp(inputPath, { animated: true, limitInputPixels: 40000000 })
         .resize({ width: MAX_WIDTH, withoutEnlargement: true })
         .gif()
         .toBuffer();
     } else {
       outFilename = file.filename.replace(/\.[^.]+$/, '.webp');
-      outPath = path.join(path.dirname(inputPath), outFilename);
-      buf = await sharp(inputPath)
+      buf = await sharp(inputPath, { limitInputPixels: 20000000 })
         .rotate() // aplica orientação EXIF antes de descartar os metadados
         .resize({ width: MAX_WIDTH, withoutEnlargement: true })
         .webp({ quality: WEBP_QUALITY })
@@ -56,18 +53,15 @@ async function processImage(file) {
     throw invalid;
   }
 
-  fs.writeFileSync(outPath, buf);
-
-  // Falha de LIMPEZA não invalida o upload (o arquivo final já foi gravado)
-  if (outPath !== inputPath) {
-    try {
-      fs.unlinkSync(inputPath);
-    } catch (err) {
-      console.warn(`Aviso: não foi possível remover o arquivo temporário ${inputPath}: ${err.message}`);
-    }
+  let url;
+  try {
+    url = await require('../services/objectStorage').persistImage(buf, outFilename, outFilename.endsWith('.gif') ? 'image/gif' : 'image/webp');
+  } finally {
+    // Originals live in quarantine; local and S3 outputs are always separate.
+    try { fs.unlinkSync(inputPath); } catch {}
   }
 
-  return { filename: outFilename };
+  return { filename: outFilename, url };
 }
 
 module.exports = { processImage };

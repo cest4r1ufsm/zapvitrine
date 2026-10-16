@@ -30,6 +30,7 @@ function mockedRouter(service) {
       },
     };
     if (name === '../lib/prisma') return { store: { findUnique: async () => ({ id: 1 }) } };
+    if (name === '../lib/sharedLimits') return { limitStore: () => ({}) };
     return require(name);
   };
   target._compile(fs.readFileSync(filename, 'utf8'), filename);

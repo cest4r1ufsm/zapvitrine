@@ -20,7 +20,8 @@ function decrypt(value) {
   return Buffer.concat([cipher.update(data), cipher.final()]).toString('utf8');
 }
 function connection(store) {
-  const expired = store.officialTokenExpiresAt && store.officialTokenExpiresAt <= new Date();
+  const expiration = store.officialTokenExpiresAt ? new Date(store.officialTokenExpiresAt).getTime() : null;
+  const expired = expiration !== null && (!Number.isFinite(expiration) || expiration <= Date.now());
   return { connected: store.officialStatus === 'connected' && !expired, status: expired ? 'reauthorization_required' : store.officialStatus || 'disconnected', phoneId: store.officialPhoneId || null, wabaId: store.officialWabaId || null, displayPhoneNumber: store.officialDisplayPhone || null, verifiedName: store.officialVerifiedName || null, lastError: expired ? 'Autorização expirada. Conecte novamente.' : store.officialLastError || null };
 }
 async function graph(endpoint, token, { method = 'GET', body } = {}) {
@@ -49,11 +50,13 @@ async function send(store, to, payload, { automation = false } = {}) {
   const phoneId = official ? store.officialPhoneId : store.botPhoneId;
   const token = official ? decrypt(store.officialToken) : store.botToken;
   if (!phoneId || !token) throw new Error('WhatsApp oficial desconectado');
-  const phone = String(to).replace(/\D/g, '');
+  // Do not turn a LID/JID or arbitrary text into a different customer's number.
+  if (typeof to !== 'string' || !/^\+?[\d\s().-]+$/.test(to.trim())) throw new Error('Telefone do cliente inválido');
+  const phone = to.replace(/\D/g, '');
   if (!/^\d{8,15}$/.test(phone)) throw new Error('Telefone do cliente inválido');
   if (official && !connection(store).connected) throw new Error('Autorização expirada. Conecte novamente.');
   let result;
-  try { result = await graph(`${phoneId}/messages`, token, { method: 'POST', body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: phone, ...payload } }); }
+  try { result = await graph(`${phoneId}/messages`, token, { method: 'POST', body: { ...payload, messaging_product: 'whatsapp', recipient_type: 'individual', to: phone } }); }
   catch (err) {
     if (official && err.metaCode === 190) await prisma.store.update({ where: { id: store.id }, data: { officialStatus: 'reauthorization_required', officialLastError: 'Meta revogou ou expirou a autorização. Conecte novamente.' } });
     throw err;

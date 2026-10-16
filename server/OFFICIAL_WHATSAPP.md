@@ -17,6 +17,8 @@ Configurar domínio do aplicativo, política de privacidade, exclusão de dados,
 
 ## Banco e publicação
 
+**Atualização 15/10/2026:** a base nacional agora exige PostgreSQL/PostGIS em produção, Redis compartilhado e armazenamento S3/CDN. O procedimento SQLite abaixo descreve a versão anterior e não deve ser usado na implantação nacional. O script antigo de deploy foi desativado antes de qualquer efeito. Siga `infra/terraform/README.md`, migrations PostgreSQL e o diagnóstico `node scripts/check-integrations.js`; aplique primeiro em homologação e preserve backup/restauração ensaiados. Sem esses serviços, não publicar esta base sobre o VPS SQLite existente.
+
 Não executar contra o banco de produção sem backup consistente. A alteração é aditiva no domínio: novos campos oficiais e tabelas de state, inbox, conversa, delivery e leases.
 
 1. Parar a instância anterior e fazer backup consistente do SQLite (inclusive WAL se utilizado).
@@ -38,7 +40,7 @@ Os testes criam cópias descartáveis do banco e aplicam o schema nessas cópias
 
 ## Entrega e recuperação
 
-Mensagens recebidas são persistidas antes do ACK HTTP; redelivery da Meta é deduplicada pelo message ID e loja. Um lease no SQLite serializa o worker entre instâncias que compartilham o mesmo banco. Conversas são persistidas e expiram após 24 horas. A implantação continua exigindo um único processo para reservas, pois o lock existente da agenda é em memória.
+Mensagens recebidas são persistidas antes do ACK HTTP; redelivery da Meta é deduplicada pelo message ID e loja. Leases por loja coordenam workers; a base PostgreSQL utiliza transações e restrições de integridade para reservas entre processos. Conversas são persistidas e expiram após 24 horas. SQLite permanece restrito a desenvolvimento/testes, sem equivalência com as garantias nacionais de produção.
 
 `accepted` confirma aceite da Graph, e os webhooks posteriores atualizam `sent`, `delivered`, `read` ou `failed`. Não transformar aceite em “entregue”. Erros da Meta 190 exigem nova autorização.
 

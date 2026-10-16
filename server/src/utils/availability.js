@@ -254,10 +254,12 @@ function isSlotOccupied(slotTime, existingOrders, relevantBlocks, totalDuration)
     const orderStartMin = dt.getUTCHours() * 60 + dt.getUTCMinutes();
     // durationOverride: tempo personalizado definido para ESTE atendimento
     // (o profissional julgou precisar de mais/menos tempo que o padrão do serviço)
-    const base          = Number.isInteger(order.durationOverride) && order.durationOverride > 0
+    const base          = Number.isInteger(order.reservedDurationMinutes) && order.reservedDurationMinutes > 0
+      ? order.reservedDurationMinutes
+      : Number.isInteger(order.durationOverride) && order.durationOverride > 0
       ? order.durationOverride
       : (order.product?.duration || 30);
-    const orderDur      = base + (order.product?.bufferTime || 0);
+    const orderDur      = base + (order.reservedBufferMinutes ?? order.product?.bufferTime ?? 0);
     const orderEndMin   = orderStartMin + orderDur;
     if (slotStart < orderEndMin && slotEnd > orderStartMin) return true;
   }
@@ -370,10 +372,12 @@ async function getAvailableSlots(prisma, storeId, dateStr, serviceId, profession
   if (resources.every(r => r.blocks.some(b => b.isFullDay))) return [];
 
   // Get Brazil local "now" — server is UTC, BRT = UTC-3
-  const nowBRT    = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const todayBRT  = nowBRT.toISOString().slice(0, 10);
+  const { localClock, storeTimeZone } = require('./timeZone');
+  const clock = localClock(await storeTimeZone(prisma, storeId));
+  const todayBRT  = clock.date;
+  if (dateStr < todayBRT) return [];
   const isToday   = (dateStr === todayBRT);
-  const nowMinBRT = isToday ? nowBRT.getUTCHours() * 60 + nowBRT.getUTCMinutes() + 60 : 0; // +60min lead
+  const nowMinBRT = isToday ? clock.minutes + 60 : 0;
 
   return allSlots.filter(slot => {
     if (isToday && timeToMinutes(slot) <= nowMinBRT) return false;
@@ -390,8 +394,8 @@ async function getAvailableDates(prisma, storeId, serviceId, professionalId, max
   );
 
   // Start from today (BRT) — no máximo 31 dias à frente (offsets 0..30)
-  const nowBRT  = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const todayBRT = nowBRT.toISOString().slice(0, 10);
+  const { localClock, storeTimeZone } = require('./timeZone');
+  const todayBRT = localClock(await storeTimeZone(prisma, storeId)).date;
 
   for (let offset = 0; offset <= 30 && result.length < limit; offset++) {
     const d = new Date(todayBRT + 'T12:00:00Z');
@@ -431,7 +435,20 @@ function getDayLabelBR(dateStr) {
   return DAY_LABELS_BR[name] || name;
 }
 
+// Called inside withStoreLock: "any professional" must reserve a concrete
+// resource, otherwise a nullable booking unnecessarily blocks the whole team.
+async function assignAvailableProfessional(prisma, storeId, date, serviceId, requestedId, time, duration = null) {
+  const candidates = Number.isInteger(requestedId) ? [{ id: requestedId }]
+    : await prisma.professional.findMany({ where: { storeId, active: true }, select: { id: true }, orderBy: { id: 'asc' } });
+  if (!candidates.length) candidates.push({ id: null });
+  for (const candidate of candidates) {
+    if ((await getAvailableSlots(prisma, storeId, date, serviceId, candidate.id, duration)).includes(time)) return { professionalId: candidate.id };
+  }
+  return null;
+}
+
 module.exports = {
+  assignAvailableProfessional,
   getAvailableSlots,
   getAvailableDates,
   buildScheduledAt,

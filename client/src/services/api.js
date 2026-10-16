@@ -9,46 +9,32 @@ export class ApiError extends Error {
   }
 }
 
-function getToken() {
-  return localStorage.getItem('pedidoprontobot_token');
-}
+let csrfToken = null;
+export function clearAuthState() { csrfToken = null; }
 
-function authHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function request(endpoint, options = {}) {
+export async function request(endpoint, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method);
   const res = await fetch(`${API_URL}${endpoint}`, {
     ...options,
+    credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders(),
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(unsafe && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
       ...options.headers,
     },
   });
-
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) clearAuthState();
     throw new ApiError(data.error || `Erro ${res.status}`, res.status);
   }
-
-  return res.json();
+  if (data.csrfToken) csrfToken = data.csrfToken;
+  return data;
 }
 
 async function uploadFile(endpoint, formData) {
-  const res = await fetch(`${API_URL}${endpoint}`, {
-    method: 'POST',
-    headers: { ...authHeaders() },
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new ApiError(data.error || `Erro ${res.status}`, res.status);
-  }
-
-  return res.json();
+  return request(endpoint, { method: 'POST', body: formData });
 }
 
 // Auth
@@ -56,6 +42,7 @@ export const authAPI = {
   register: (data) => request('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   me: () => request('/auth/me'),
+  logout: () => request('/auth/logout', { method: 'POST' }),
   verifyEmail: (token) => request(`/auth/verify-email?token=${token}`),
   resendVerification: (email) => request('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }),
   forgotPassword: (email) => request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
@@ -122,6 +109,7 @@ export const UPLOADS_URL = import.meta.env.VITE_UPLOADS_URL || (isDev ? API_URL.
 const api = {
   get: (endpoint) => request(endpoint),
   post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+  put: (endpoint, body) => request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
   patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
 };

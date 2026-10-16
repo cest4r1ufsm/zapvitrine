@@ -1,0 +1,8 @@
+Use case: stylized-concept
+Asset type: wide landing-page hero atmosphere background for AGTGestor.
+Primary request: a minimal premium daylight atmosphere, like an expansive pale-blue sky seen through very soft diffused clouds, supporting black web typography and a graphite smartphone without competing with them.
+Scene: open airy sky with no horizon, land or architecture.
+Style: refined photographic atmosphere, realistic cloud vapor, subtle tonal depth and no illustration look.
+Composition: panoramic landscape with broad negative space through the center and right.
+Palette: porcelain white, pale daylight cyan, cool powder blue and neutral silver.
+Constraints: no text, logos, watermark, people, objects, interface, purple, saturated gradient, neon, sun disc or hard cloud edges.

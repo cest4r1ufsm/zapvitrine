@@ -121,6 +121,23 @@ module.exports = async function run() {
         where: { phone: '44997553688', storeId: { in: [store.id, outraLoja.id] } },
       })) === 2, 'esperado 1 registro em cada uma das duas lojas de teste');
 
+    console.log('\n-- Ranking estável sem N+1 --');
+    const tiedDate = new Date('2035-01-01T10:00:00Z');
+    const firstTie = await prisma.order.create({ data: { storeId: store.id, customerName: 'Valeria', customerPhone: '44997553688', createdAt: tiedDate, totalPrice: 71 } });
+    const lastTie = await prisma.order.create({ data: { storeId: store.id, customerName: 'Valeria', customerPhone: '44997553688', createdAt: tiedDate, totalPrice: 72 } });
+    await prisma.order.create({ data: { storeId: store.id, customerName: 'Valeria', customerPhone: '44997553688', createdAt: new Date('2020-01-01T00:00:00Z'), totalPrice: 73 } });
+    await prisma.order.create({ data: { storeId: outraLoja.id, customerName: 'Alheio', customerPhone: '44997553688', createdAt: new Date('2040-01-01T00:00:00Z'), totalPrice: 99 } });
+    await registrarCliente(prisma, store.id, 'Sem pedidos', '44900009999');
+    r = await req('GET', '/clients');
+    const ranked = r.body.find(c => c.phone === '44997553688');
+    check('empate de createdAt usa id desc determinístico', ranked?.lastOrder?.id === lastTie.id && lastTie.id > firstTie.id, JSON.stringify(ranked));
+    check('createdAt prevalece sobre id maior de pedido antigo', ranked?.lastOrder?.totalPrice === 72, JSON.stringify(ranked?.lastOrder));
+    check('contagem isolada não inclui pedido de outra loja', ranked?.totalOrders === 5, String(ranked?.totalOrders));
+    check('relações removidas/nulas preservam formato', ranked?.lastOrder?.product === null && ranked?.lastOrder?.professional === null, JSON.stringify(ranked?.lastOrder));
+    check('createdAt mantém serialização ISO', ranked?.lastOrder?.createdAt === tiedDate.toISOString(), ranked?.lastOrder?.createdAt);
+    const noOrders = r.body.find(c => c.phone === '44900009999');
+    check('cliente sem pedidos mantém zero e null', noOrders?.totalOrders === 0 && noOrders?.lastOrder === null, JSON.stringify(noOrders));
+
     console.log('\n-- Robustez do helper --');
     check('telefone vazio não cria registro',
       (await registrarCliente(prisma, store.id, 'X', '')) === null, 'criou com telefone vazio');

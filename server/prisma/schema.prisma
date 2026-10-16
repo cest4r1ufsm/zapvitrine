@@ -8,6 +8,8 @@ datasource db {
 }
 
 model User {
+  directoryFavorites DirectoryFavorite[]
+  publicBookings PublicBooking[]
   id                     Int       @id @default(autoincrement())
   email                  String    @unique
   password               String
@@ -19,6 +21,7 @@ model User {
   passwordResetToken     String?
   passwordResetExpires   DateTime?
   createdAt              DateTime  @default(now())
+  sessions               AuthSession[]
   store                  Store?
 }
 
@@ -50,6 +53,7 @@ model Store {
   subscriptionExpiresAt DateTime? // fim do período pago informado pelo Google
   playPurchaseToken     String?
   playProductId         String?
+  directoryListing DirectoryListing?
   categories    Category[]
   products      Product[]
   orders        Order[]
@@ -135,6 +139,8 @@ model Category {
 }
 
 model Product {
+  @@index([storeId, active, price])
+  directoryServices ProductServiceTag[]
   id          Int       @id @default(autoincrement())
   storeId     Int
   store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -153,6 +159,7 @@ model Product {
 }
 
 model Order {
+  publicBooking PublicBooking?
   id              Int           @id @default(autoincrement())
   storeId         Int
   store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -169,6 +176,9 @@ model Order {
   // substitui Product.duration no cálculo de ocupação da agenda — permite ao
   // profissional reservar mais (ou menos) tempo que o padrão do serviço.
   durationOverride Int?
+  reservedDurationMinutes Int?
+  reservedBufferMinutes Int?
+  priceCents Int?
   notes           String?
   status          String        @default("pending") // pending, confirmed, completed, cancelled
   totalPrice      Float?
@@ -210,5 +220,166 @@ model Client {
   createdAt DateTime @default(now())
 
   @@unique([storeId, phone])
+}
+
+
+model DirectoryListing {
+  favorites DirectoryFavorite[]
+  bookings PublicBooking[]
+  reviews DirectoryReview[]
+  id Int @id @default(autoincrement())
+  publicId String @unique
+  storeId Int @unique
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name String
+  description String @default("")
+  phone String
+  storeSlug String
+  address String
+  neighborhood String @default("")
+  municipalityCode String
+  city String
+  uf String
+  latitude Float
+  longitude Float
+  publicLatitude Float
+  publicLongitude Float
+  locationPrecision String @default("exact")
+  timeZone String
+  hoursJson String @default("{}")
+  holidayHoursJson String @default("{}")
+  coordinatesConfirmedAt DateTime?
+  onlineBookingEnabled Boolean @default(false)
+  status String @default("draft")
+  version Int @default(1)
+  consentAt DateTime?
+  moderationReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  services DirectoryListingService[]
+  reports DirectoryReport[]
+  @@index([status, municipalityCode])
+  @@index([status, publicLatitude, publicLongitude])
+}
+
+model DirectoryListingService {
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  slug String
+  @@id([listingId, slug])
+  @@index([slug, listingId])
+}
+
+model DirectoryMunicipality {
+  code String @id
+  name String
+  searchName String
+  uf String
+  timeZone String
+  updatedAt DateTime @updatedAt
+  @@index([uf, searchName])
+  @@index([searchName])
+}
+
+model DirectoryReport {
+  id String @id
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  userId Int
+  reason String
+  status String @default("open")
+  createdAt DateTime @default(now())
+  @@unique([listingId, userId])
+  @@index([status, createdAt])
+}
+
+model DirectoryAudit {
+  id String @id
+  listingId Int
+  actorId Int
+  action String
+  reason String?
+  createdAt DateTime @default(now())
+  @@index([listingId, createdAt])
+}
+
+model DirectoryQuota {
+  key String @id
+  count Int @default(0)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model AuthSession {
+  id        String @id
+  userId    Int
+  csrfHash  String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+
+
+
+model ServiceTag {
+  slug String @id
+  name String
+  products ProductServiceTag[]
+}
+
+model ProductServiceTag {
+  productId Int
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  slug String
+  service ServiceTag @relation(fields: [slug], references: [slug], onDelete: Cascade)
+  @@id([productId, slug])
+  @@index([slug, productId])
+}
+
+
+model DirectoryFavorite {
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, listingId])
+}
+
+model PublicBooking {
+  id String @id
+  userId Int
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId Int @unique
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  idempotencyKey String
+  requestHash String
+  timeZone String
+  createdAt DateTime @default(now())
+  review DirectoryReview?
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+
+model DirectoryReview {
+  id String @id
+  bookingId String @unique
+  booking PublicBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  listingId Int
+  listing DirectoryListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  rating Int
+  text String
+  status String @default("pending")
+  moderationReason String?
+  response String?
+  responseStatus String @default("none")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([listingId, status, createdAt])
 }
 
