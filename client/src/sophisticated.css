@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600&display=swap');
 
 :root {
   /* Paleta de marca em grafite: qualquer uso remanescente de var(--primary)
@@ -57,6 +57,7 @@
   --transition: 180ms cubic-bezier(.2, .8, .2, 1);
   --transition-slow: 360ms cubic-bezier(.2, .8, .2, 1);
   --agt-sidebar: 14.5rem;
+  --font-sans: 'Inter Tight', 'Segoe UI', Arial, sans-serif;
   color-scheme: light;
 }
 
@@ -100,13 +101,13 @@
 }
 
 html {
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   scrollbar-color: var(--border-light) var(--bg-dark);
   scrollbar-width: thin;
 }
 
 body {
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg-dark);
   color: var(--text-primary);
   text-rendering: optimizeLegibility;
@@ -117,7 +118,7 @@ button,
 input,
 textarea,
 select {
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
 }
 
 ::selection {
@@ -235,6 +236,69 @@ button:disabled,
 
 .btn-icon:hover { color: var(--ink-accent); background: var(--tint-surface); border-color: var(--border-light); }
 
+/* Tipografia editorial leve e controles translúcidos inspirados na referência.
+   O contraste permanece mais firme no painel, onde leitura e operação vêm antes
+   do efeito visual. */
+:where(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: -.035em;
+}
+
+:where(h3, h4, h5, h6) {
+  font-weight: 500;
+  letter-spacing: -.025em;
+}
+
+.btn,
+.vectr-landing .vl-pill {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -.015em;
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(16px) saturate(115%);
+  -webkit-backdrop-filter: blur(16px) saturate(115%);
+}
+
+.btn {
+  min-height: 42px;
+  padding: 10px 19px;
+}
+
+.btn-primary {
+  color: #fff;
+  background: rgba(29, 40, 54, .90);
+  border-color: rgba(255, 255, 255, .24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 8px 24px rgba(20, 28, 40, .12);
+}
+
+.btn-primary:hover {
+  background: rgba(20, 31, 44, .96);
+  border-color: rgba(255, 255, 255, .34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 12px 30px rgba(20, 28, 40, .16);
+}
+
+.btn-secondary,
+.btn-outline,
+.btn-icon {
+  background: rgba(255, 255, 255, .58);
+  border-color: rgba(94, 118, 143, .28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .72), 0 7px 22px rgba(40, 64, 88, .07);
+}
+
+.btn-secondary:hover,
+.btn-outline:hover,
+.btn-icon:hover {
+  background: rgba(255, 255, 255, .82);
+  border-color: rgba(70, 94, 120, .42);
+}
+
+[data-theme="dark"] :where(.btn-secondary, .btn-outline, .btn-icon) {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(255, 255, 255, .16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 8px 24px rgba(0, 6, 14, .22);
+}
+
 .form-group { gap: 7px; margin-bottom: 18px; }
 .form-group label {
   color: var(--text-secondary);
@@ -265,7 +329,7 @@ button:disabled,
 body:has(.vectr-landing) { background: #fff !important; }
 
 .vectr-landing,
-.vectr-landing * { font-family: 'Manrope', 'Segoe UI', sans-serif; }
+.vectr-landing * { font-family: var(--font-sans); }
 
 .vectr-landing {
   --vl-ink: #07101e;
@@ -1418,4 +1482,103 @@ body:has(.vectr-landing) { background: #fff !important; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* Infinite-map visual language: light grotesk + quiet glass pills. */
+.vectr-landing .vl-hero-title,
+.vectr-landing .vl-split-title,
+.vectr-landing .vl-howfaq-title,
+.vectr-landing .vl-section-title,
+.vectr-landing .vl-cost-title,
+.vectr-landing .vl-final-title,
+.vectr-landing .vl-search-title,
+.vectr-landing .cf-info-title,
+.agt-app .page-header h1,
+.auth-page.auth-light .auth-card h2,
+.public-store .store-hero h1 {
+  font-family: var(--font-sans) !important;
+  font-weight: 400 !important;
+  letter-spacing: -.035em !important;
+}
+
+.vectr-landing .vl-hero-title {
+  font-size: clamp(2.65rem, 4.65vw, 4.35rem);
+  line-height: .98;
+}
+
+.vectr-landing .vl-hero-sub,
+.vectr-landing .vl-split-desc,
+.vectr-landing .vl-section-sub,
+.vectr-landing .vl-cost-desc,
+.vectr-landing .vl-final-sub {
+  font-weight: 400;
+  letter-spacing: -.018em;
+}
+
+.vectr-landing .vl-pill,
+.agt-app .btn,
+.auth-page .btn,
+.public-store .btn {
+  font-family: var(--font-sans) !important;
+  font-weight: 500 !important;
+  letter-spacing: -.015em !important;
+  border-radius: 999px !important;
+}
+
+.vectr-landing .vl-pill {
+  min-height: 42px;
+  padding: 10px 19px;
+  color: var(--vl-ink);
+  -webkit-text-fill-color: currentColor;
+  background: rgba(255, 255, 255, .54);
+  border: 1px solid rgba(255, 255, 255, .74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 8px 24px rgba(39, 67, 96, .08);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+}
+
+.vectr-landing .vl-pill:hover {
+  color: var(--vl-ink);
+  -webkit-text-fill-color: currentColor;
+  background: rgba(255, 255, 255, .78);
+  border-color: rgba(255, 255, 255, .92);
+  box-shadow: inset 0 1px 0 #fff, 0 12px 30px rgba(39, 67, 96, .12);
+  transform: translateY(-1px);
+}
+
+.vectr-landing .vl-hero-cta .vl-pill {
+  min-height: 50px;
+  padding-inline: 24px;
+  font-size: .95rem;
+}
+
+.vectr-landing .vl-hero-cta .vl-pill:first-child {
+  background: rgba(255, 255, 255, .48);
+  border-color: rgba(255, 255, 255, .82);
+}
+
+.vectr-landing .vl-hero-cta .vl-pill:last-child {
+  background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .48);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32);
+}
+
+.agt-app .btn,
+.auth-page .btn,
+.public-store .btn {
+  min-height: 42px;
+  padding: 10px 19px;
+}
+
+@media (max-width: 520px) {
+  .vectr-landing .vl-hero-title {
+    font-size: clamp(2.35rem, 10.8vw, 3.15rem);
+    line-height: 1;
+  }
+
+  .vectr-landing .vl-hero-cta .vl-pill {
+    min-height: 46px;
+    padding-inline: 13px;
+    font-size: .78rem;
+  }
 }
