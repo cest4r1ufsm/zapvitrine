@@ -57,6 +57,8 @@ Foi exibido no painel da Hostinger um aviso de que a renovação do plano **KVM 
 
 ### Passo 2 — Configurar o Mapbox
 
+**Atualização de execução:** concluído em 16/10/2026. Foram criados tokens separados para navegador e servidor; o build com o token público foi publicado; o token de geocodificação ficou somente no ambiente protegido do VPS; `permanent=true` foi habilitado; uma consulta real retornou HTTP 200 com coordenadas válidas. Resta somente o teste visual no Android dentro da homologação final.
+
 Hoje o backend não tem `MAPBOX_GEOCODING_TOKEN`, o build do navegador não tem `VITE_MAPBOX_PUBLIC_TOKEN` e a autorização para geocodificação permanente não foi confirmada. Sem isso, o diretório funciona em modo de lista/localização alternativa, mas o mapa e a busca por endereço não ficam completos.
 
 #### 2.1 Token público do mapa
@@ -115,6 +117,8 @@ Já existem app, portfólio, configuração de Embedded Signup e webhook. A veri
 
 ### Passo 4 — Homologar o Google Play Billing
 
+**Atualização de execução:** a API do Google Play foi consultada com a conta de serviço de produção. O pacote `br.com.agentegestor.app`, produto `agtgestor_premium_mensal` e plano-base `mensal` estão ativos, autorrenováveis e disponíveis no Brasil por R$ 27,99. Ainda falta a compra/restauração/cancelamento em aparelho real.
+
 O aplicativo e a assinatura já existem. O pacote esperado é `br.com.agentegestor.app`, e o produto é `agtgestor_premium_mensal`, plano-base `mensal`.
 
 1. No Play Console, confirme que o produto e o plano-base estão ativos na região desejada.
@@ -132,6 +136,8 @@ O aplicativo e a assinatura já existem. O pacote esperado é `br.com.agentegest
 
 ### Passo 5 — Homologar Stripe
 
+**Atenção:** a consulta real encontrou o Stripe em modo live, preço ativo de R$ 29,90/mês e webhook habilitado, enquanto o site mostra R$ 27,90/mês. O proprietário precisa escolher o preço definitivo antes da abertura ao público; a correção não deve ser feita silenciosamente.
+
 As configurações existem no servidor, mas presença de chaves não prova que o fluxo comercial funciona.
 
 1. Entre no Stripe e confira se a conta está no ambiente desejado: teste para homologação, produção para cobrança real.
@@ -147,6 +153,8 @@ As configurações existem no servidor, mas presença de chaves não prova que o
 **Aceite:** checkout, webhook assinado, portal, cancelamento e eventos repetidos/atrasados mantêm o estado correto.
 
 ### Passo 6 — Homologar e-mail
+
+**Atualização de execução:** autenticação SMTP com a Brevo foi validada em produção. DMARC existe em modo `p=none`, mas a consulta pública não encontrou SPF no domínio raiz nem DKIM nos seletores usuais; revisar o painel Brevo/DNS antes de considerar entregabilidade homologada. Ainda falta enviar e receber uma mensagem real.
 
 1. No provedor SMTP, confirme o domínio/remetente usado pelo AGTGestor.
 2. Verifique SPF e DKIM; publique DMARC ao menos em modo de monitoramento se ainda não existir.

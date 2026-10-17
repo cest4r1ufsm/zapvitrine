@@ -30,6 +30,17 @@ docker compose --env-file .env.vps -f compose.vps.yaml exec -T postgres psql -U 
 docker compose --env-file .env.vps -f compose.vps.yaml up -d api worker proxy
 ```
 
+Na instalação atual da Hostinger, o Nginx do host continua responsável pelo HTTPS e encaminha para `127.0.0.1:3001`. Portanto, qualquer criação ou recriação de API/worker em produção deve incluir também a sobreposição `compose.nginx.yaml`:
+
+```sh
+docker compose --env-file deploy/.env.vps \
+  -f deploy/compose.vps.yaml \
+  -f deploy/compose.nginx.yaml \
+  up -d --no-deps api worker
+```
+
+Não executar `up`, `restart` ou `force-recreate` de API/worker apenas com `compose.vps.yaml` nesse host: o serviço fica saudável dentro do Docker, mas perde a publicação `127.0.0.1:3001` e o Nginx externo responde 502. Após toda recriação, conferir `docker compose ps` e exigir `https://agentegestor.com.br/api/health` com HTTP 200.
+
 O script de inicialização cria agt_app sem superuser, createdb ou createrole. Ele só executa em volume PostgreSQL vazio. Migrations são explícitas, usando o papel administrativo; depois, grant-app.sql concede CRUD/seq ao papel da aplicação e retira acesso ao registro de migrations. Repetir grants após novas migrations. API/worker verificam extensões, triggers e privilégio do usuário ao iniciar. Não contornar productionConfig nem os checks para iniciar com banco incompleto.
 
 Verificar logs sem imprimir env, health da API, HTTPS, login/CSRF, diretório, upload, agendamento, worker e callbacks. A conta de aplicação deve conectar como agt_app. Não publicar porta5432 ou6379. Firewall do VPS deve expor apenas80/443 e acesso administrativo restrito. Não montar socket Docker na aplicação.
