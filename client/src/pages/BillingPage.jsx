@@ -66,7 +66,7 @@ export default function BillingPage() {
 
   const isPlay = store?.subscriptionSource === 'play';
   const isActive = hasPaidAccess(store);
-  const price = inApp ? (googlePrice || '—') : 'R$ 27,90';
+  const price = inApp ? (googlePrice || '—') : 'R$ 29,90';
 
   let action = null;
   if (isActive && isPlay) {

@@ -496,7 +496,7 @@ export default function LandingPage() {
         <Reveal className="vl-pricing-card" delay={160}>
           <div className="vl-pricing-tag">Plano completo</div>
           <h3>Profissional</h3>
-          <div className="vl-pricing-price">R$27,90<span>/mês</span></div>
+          <div className="vl-pricing-price">R$29,90<span>/mês</span></div>
           <p className="vl-pricing-note">7 dias grátis, sem cartão de crédito</p>
           <ul className="vl-pricing-list">
             <li>Agenda com calendário completo</li>
