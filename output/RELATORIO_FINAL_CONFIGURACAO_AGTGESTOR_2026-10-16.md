@@ -154,15 +154,13 @@ As configurações existem no servidor, mas presença de chaves não prova que o
 
 ### Passo 6 — Homologar e-mail
 
-**Atualização de execução:** autenticação SMTP com a Brevo foi validada em produção. DMARC existe em modo `p=none`, mas a consulta pública não encontrou SPF no domínio raiz nem DKIM nos seletores usuais; revisar o painel Brevo/DNS antes de considerar entregabilidade homologada. Ainda falta enviar e receber uma mensagem real.
+**Atualização de execução (2026-10-17):** autenticação SMTP com a Brevo foi validada em produção. O painel Brevo marca `agentegestor.com.br` como autenticado: Brevo Code, os dois registros DKIM por CNAME e o DMARC estão validados. A resolução DNS pública confirmou `brevo1._domainkey`, `brevo2._domainkey` e `_dmarc` (`p=none`). Não é necessária correção de DNS neste momento. Ainda falta enviar e receber mensagens reais para homologar a entrega e os links.
 
-1. No provedor SMTP, confirme o domínio/remetente usado pelo AGTGestor.
-2. Verifique SPF e DKIM; publique DMARC ao menos em modo de monitoramento se ainda não existir.
-3. Crie uma conta nova com um e-mail ao qual você tenha acesso.
-4. Confirme que o e-mail de ativação chega e abre o domínio correto.
-5. Use **Esqueci minha senha**, abra o link e altere a senha.
-6. Teste Gmail e outro provedor; examine também spam e promoções.
-7. Verifique no provedor se houve rejeição, bloqueio ou limite de envio.
+1. Crie uma conta nova com um e-mail ao qual você tenha acesso.
+2. Confirme que o e-mail de ativação chega e abre o domínio correto.
+3. Use **Esqueci minha senha**, abra o link e altere a senha.
+4. Teste Gmail e outro provedor; examine também spam e promoções.
+5. Verifique no provedor se houve rejeição, bloqueio ou limite de envio.
 
 **Aceite:** confirmação e recuperação chegam, os links funcionam uma única vez e o remetente não apresenta alerta de falsificação.
 
