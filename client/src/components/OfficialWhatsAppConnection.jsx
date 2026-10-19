@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { launchMetaSignup, prepareMetaSdk } from '../services/metaSignup';
 import './OfficialWhatsAppConnection.css';
@@ -17,6 +18,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [needsPlan, setNeedsPlan] = useState(false);
   const mounted = useRef(false);
   const sdk = useRef(null);
   const cancel = useRef(null);
@@ -37,7 +39,11 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
         sdk.current = await prepareMetaSdk(next);
         if (mounted.current && id === generation.current) setReady(true);
       }
-    } catch (err) { if (mounted.current && id === generation.current) setError(err.message || 'Não foi possível consultar a conexão.'); }
+    } catch (err) {
+      if (!mounted.current || id !== generation.current) return;
+      if (['SUBSCRIPTION_REQUIRED', 'TRIAL_EXPIRED'].includes(err.code)) { setNeedsPlan(true); setError(''); return; }
+      setError(err.message || 'Não foi possível consultar a conexão.');
+    }
     finally { if (mounted.current && id === generation.current) setLoading(false); }
   }, [connectionApi]);
 
@@ -113,7 +119,10 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
   return <section className={`official-wa${compact ? ' is-compact' : ''}`} aria-label="Conexão do WhatsApp" aria-busy={loading || busy}>
     {!compact && <h4>WhatsApp do salão</h4>}
     {error && <p className="alert alert-error" role="alert">{error}</p>}
-    {loading ? <p role="status">Preparando...</p> : connection?.connected ? <>
+    {loading ? <p role="status">Preparando...</p> : needsPlan ? <>
+      <p>Seu período grátis acabou. Assine para ligar o robô no seu WhatsApp.</p>
+      <Link className="btn btn-primary official-wa-main" to="/dashboard/billing">Ver planos</Link>
+    </> : connection?.connected ? <>
       <p className="official-wa-connected">Conectado</p>
       <p className="official-wa-account">{connection.verifiedName}<br />{connection.displayPhoneNumber}</p>
       <p>O robô responde seus clientes neste número. Você continua usando o WhatsApp Business normalmente.</p>
@@ -126,7 +135,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
       <button className="btn btn-primary official-wa-main" type="button" disabled={busy || !ready} onClick={connect}>{busy ? 'Aguardando você...' : ready ? 'Conectar meu WhatsApp' : 'Preparando...'}</button>
     </> : <p>A conexão com o WhatsApp está em manutenção. Sua agenda funciona normalmente.</p>}
     {notice && <p role="status" className="official-wa-notice">{notice}</p>}
-    {!busy && !loading && !connection?.connected && <button type="button" className="official-wa-refresh" onClick={() => load()}>Não funcionou? Recarregar</button>}
+    {!busy && !loading && !needsPlan && !connection?.connected && <button type="button" className="official-wa-refresh" onClick={() => load()}>Não funcionou? Recarregar</button>}
     {busy && <button type="button" className="official-wa-refresh" onClick={() => { cancel.current?.(); generation.current++; setBusy(false); setNotice('Tudo bem. Toque no botão quando quiser tentar de novo.'); void load({ keepMessage: true }); }}>Cancelar</button>}
   </section>;
 }
