@@ -48,3 +48,15 @@ test('cancelled signup clears sensitive pending code and never completes later',
   assert.equal(cancelled, 1); assert.equal(completed, 0);
   cleanup(); delete globalThis.window;
 });
+
+test('uses the real SDK at click time, not the temporary object captured while loading', () => {
+  const target = new EventTarget();
+  let realCalls = 0;
+  let stubCalls = 0;
+  Object.assign(target, { __agtMetaSdkReady: true, FB: { login() { realCalls++; } } });
+  globalThis.window = target;
+  const cleanup = launchMetaSignup({ fb: { login() { stubCalls++; } }, configId: '1', onComplete() {}, onError(error) { throw error; }, onCancel() {} });
+  assert.equal(realCalls, 1);
+  assert.equal(stubCalls, 0);
+  cleanup(); delete globalThis.window;
+});
