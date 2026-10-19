@@ -198,13 +198,13 @@ async function processMessage(store, message) {
       // Customer wants to order this specific product — start order flow
       const prodId = parseInt(replyId.replace('order_', ''));
       await startOrderFlow(store, from, convoKey, prodId);
-    } else if (replyId === 'ver_catalogo' || msgLower === 'catalogo' || msgLower === 'catálogo' || msgLower === 'menu' || msgLower === 'produtos') {
+    } else if (replyId === 'ver_catalogo' || ['catalogo', 'catálogo', 'menu', 'produtos', 'servicos', 'serviços'].includes(msgLower)) {
       await sendCatalogMenu(store, from);
-    } else if (replyId === 'ver_todos' || msgLower === 'todos' || msgLower === 'tudo') {
+    } else if (replyId === 'ver_todos' || ['todos', 'tudo', 'precos', 'preços', 'preco', 'preço', 'valores'].includes(msgLower)) {
       await sendAllProducts(store, from);
-    } else if (replyId === 'fazer_pedido' || msgLower === 'pedido' || msgLower === 'pedir') {
+    } else if (replyId === 'fazer_pedido' || ['pedido', 'pedir', 'agendar', 'marcar', 'horario', 'horário', 'marcar horario', 'marcar horário'].includes(msgLower)) {
       await sendOrderInstructions(store, from);
-    } else if (replyId === 'ver_pedidos' || msgLower === 'meus pedidos') {
+    } else if (replyId === 'ver_pedidos' || ['meus pedidos', 'meus horarios', 'meus horários'].includes(msgLower)) {
       await sendCustomerOrders(store, from);
     } else {
       await sendGreeting(store, from);
@@ -366,7 +366,7 @@ async function startOrderFlow(store, to, convoKey, productId) {
   if (!product) {
     await sendWhatsAppMessage(store, to, {
       type: 'text',
-      text: { body: 'Produto não encontrado.' },
+      text: { body: 'Serviço não encontrado.' },
     });
     return;
   }
@@ -383,7 +383,7 @@ async function startOrderFlow(store, to, convoKey, productId) {
   await sendWhatsAppMessage(store, to, {
     type: 'text',
     text: {
-      body: `✅ Ótimo! Você escolheu:\n\n📦 *${product.name}*\n💰 R$ ${product.price.toFixed(2).replace('.', ',')}\n\nPara prosseguir com o pedido, me diga:\n\n👤 *Qual é o seu nome?*`,
+      body: `✅ Ótimo! Você escolheu:\n\n💇 *${product.name}*\n💰 R$ ${product.price.toFixed(2).replace('.', ',')}\n\nPara marcar, me diga:\n\n👤 *Qual é o seu nome?*`,
     },
   });
 }
@@ -392,24 +392,9 @@ async function handleConversationFlow(store, from, convoKey, convo, msgBody, rep
   switch (convo.step) {
     case 'ask_name': {
       convo.data.name = msgBody;
-      convo.step = 'ask_time_or_address';
+      convo.data.type = 'schedule';
       conversations.set(convoKey, convo);
-
-      await sendWhatsAppMessage(store, from, {
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: {
-            text: `Obrigado, *${msgBody}*! 👋\n\nEsse pedido é para:\n\n🕐 *Agendar um horário* (serviço)\n📍 *Entrega em endereço* (produto)`,
-          },
-          action: {
-            buttons: [
-              { type: 'reply', reply: { id: 'type_schedule', title: '🕐 Agendar Horário' } },
-              { type: 'reply', reply: { id: 'type_delivery', title: '📍 Com Endereço' } },
-            ],
-          },
-        },
-      });
+      await startScheduleFlow(store, from, convoKey, convo, `Obrigado, *${msgBody}*! 👋\n\n`);
       break;
     }
 
@@ -659,7 +644,7 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
 
     if (order?.priceChanged) {
       conversations.delete(convoKey);
-      await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'O preço deste produto foi atualizado. Reinicie o pedido para conferir o novo valor.' } });
+      await sendWhatsAppMessage(store, from, { type: 'text', text: { body: 'O preço deste serviço mudou. Envie "menu" e comece de novo para ver o valor certo.' } });
       return;
     }
     if (!order) {
@@ -682,20 +667,20 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
     conversations.delete(convoKey);
 
     // Build confirmation message
-    let msg = `🎉 *Pedido #${order.id} registrado com sucesso!*\n\n`;
-    msg += `📦 *Produto:* ${convo.productName}\n`;
+    let msg = `🎉 *Pedido #${order.id} recebido!*\n\n`;
+    msg += `💇 *Serviço:* ${convo.productName}\n`;
     msg += `💰 *Valor:* R$ ${convo.productPrice.toFixed(2).replace('.', ',')}\n`;
     msg += `👤 *Nome:* ${convo.data.name}\n`;
     if (isSchedule) {
       msg += `📅 *Data:* ${getDayLabelBR(convo.data.date)} ${formatDateBR(convo.data.date)}\n`;
       msg += `🕐 *Horário:* ${convo.data.time}\n`;
-      msg += `👥 *Profissional:* ${convo.data.professionalName || 'A definir pela loja'}\n`;
+      msg += `👥 *Profissional:* ${convo.data.professionalName || 'O salão escolhe'}\n`;
     }
     if (convo.data.address) msg += `📍 *Endereço:* ${convo.data.address}\n`;
     if (convo.data.notes) msg += `💬 *Obs:* ${convo.data.notes}\n`;
     msg += `\n✅ Status: *Aguardando confirmação*\n`;
     if (isSchedule && store.slug) msg += `\n📍 Veja a localização do estabelecimento:\n${(process.env.APP_URL || 'https://agentegestor.com.br').replace(/\/$/, '')}/loja/${encodeURIComponent(store.slug)}#localizacao\n`;
-    msg += `\nO lojista verá seu pedido e entrará em contato para confirmar. Obrigado! 😊`;
+    msg += `\nO salão vai confirmar seu horário por aqui. Obrigado! 😊`;
 
     await sendWhatsAppMessage(store, from, {
       type: 'interactive',
@@ -704,8 +689,8 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
         body: { text: msg },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: 'ver_catalogo', title: '📋 Ver Catálogo' } },
-            { type: 'reply', reply: { id: 'ver_pedidos', title: '📄 Meus Pedidos' } },
+            { type: 'reply', reply: { id: 'ver_catalogo', title: '💇 Ver serviços' } },
+            { type: 'reply', reply: { id: 'ver_pedidos', title: '📄 Meus horários' } },
           ],
         },
       },
@@ -716,7 +701,7 @@ async function confirmAndSaveOrder(store, from, convoKey, convo) {
     if (orderSaved) throw error;
     await sendWhatsAppMessage(store, from, {
       type: 'text',
-      text: { body: 'Desculpe, houve um erro ao registrar seu pedido. Tente novamente.' },
+      text: { body: 'Desculpe, não consegui marcar agora. Tente de novo em instantes.' },
     });
   }
 }
@@ -794,7 +779,7 @@ async function failScheduling(store, to, convoKey, error) {
 }
 
 // Passo 1 — profissional (pulado quando a loja não tem equipe cadastrada)
-async function startScheduleFlow(store, to, convoKey, convo) {
+async function startScheduleFlow(store, to, convoKey, convo, prefix = '') {
   let professionals = [];
   try {
     professionals = await prisma.professional.findMany({
@@ -810,7 +795,7 @@ async function startScheduleFlow(store, to, convoKey, convo) {
     convo.data.professionalId = null;
     convo.data.professionalName = null;
     conversations.set(convoKey, convo);
-    return sendDateOptions(store, to, convoKey, convo);
+    return sendDateOptions(store, to, convoKey, convo, prefix);
   }
 
   const professionalMap = professionals.slice(0, MAX_LIST_ROWS - 1).map((p, idx) => ({
@@ -824,7 +809,7 @@ async function startScheduleFlow(store, to, convoKey, convo) {
   convo.step = 'choose_professional';
   conversations.set(convoKey, convo);
 
-  await sendProfessionalOptions(store, to, convoKey, convo);
+  await sendProfessionalOptions(store, to, convoKey, convo, prefix);
 }
 
 async function sendProfessionalOptions(store, to, convoKey, convo, prefix = '') {
@@ -961,9 +946,9 @@ async function sendGreeting(store, to) {
       },
       action: {
         buttons: [
-          { type: 'reply', reply: { id: 'ver_catalogo', title: '📋 Ver Catálogo' } },
-          { type: 'reply', reply: { id: 'ver_todos', title: '📦 Todos Produtos' } },
-          { type: 'reply', reply: { id: 'fazer_pedido', title: '🛒 Fazer Pedido' } },
+          { type: 'reply', reply: { id: 'fazer_pedido', title: '📅 Marcar horário' } },
+          { type: 'reply', reply: { id: 'ver_todos', title: '💰 Ver preços' } },
+          { type: 'reply', reply: { id: 'ver_pedidos', title: '📄 Meus horários' } },
         ],
       },
     },
@@ -993,7 +978,7 @@ async function sendCatalogMenu(store, to, page = 0) {
     rows: paginatedRows(categories, page, 'pagecat', cat => ({
       id: `cat_${cat.id}`,
       title: cat.name.substring(0, 24),
-      description: `Ver produtos de ${cat.name}`.substring(0, 72),
+      description: `Ver serviços de ${cat.name}`.substring(0, 72),
     })),
   }];
 
@@ -1002,7 +987,7 @@ async function sendCatalogMenu(store, to, page = 0) {
     interactive: {
       type: 'list',
       body: {
-        text: `📋 *Catálogo - ${store.name}*\n\nEscolha uma categoria para ver os produtos:`,
+        text: `💇 *Serviços - ${store.name}*\n\nEscolha um tipo de serviço:`,
       },
       action: {
         button: 'Ver Categorias',
@@ -1020,7 +1005,7 @@ async function sendProductsForCategory(store, to, categoryId, page = 0) {
   if (products.length === 0) {
     await sendWhatsAppMessage(store, to, {
       type: 'text',
-      text: { body: `Nenhum produto disponível em *${catName}* no momento.` },
+      text: { body: `Nenhum serviço disponível em *${catName}* agora.` },
     });
     return;
   }
@@ -1039,10 +1024,10 @@ async function sendProductsForCategory(store, to, categoryId, page = 0) {
     interactive: {
       type: 'list',
       body: {
-        text: `📦 *${catName}*\n\nEscolha um produto para ver os detalhes:`,
+        text: `💇 *${catName}*\n\nEscolha um serviço:`,
       },
       action: {
-        button: 'Ver Produtos',
+        button: 'Ver serviços',
         sections,
       },
     },
@@ -1055,12 +1040,12 @@ async function sendAllProducts(store, to) {
   if (products.length === 0) {
     await sendWhatsAppMessage(store, to, {
       type: 'text',
-      text: { body: 'Nenhum produto disponível no momento. 😕' },
+      text: { body: 'Nenhum serviço disponível agora. 😕' },
     });
     return;
   }
 
-  let msg = `📦 *Todos os Produtos - ${store.name}*\n\n`;
+  let msg = `💰 *Preços - ${store.name}*\n\n`;
 
   const grouped = {};
   products.forEach(p => {
@@ -1077,7 +1062,7 @@ async function sendAllProducts(store, to) {
     msg += '\n';
   });
 
-  msg += `\n💬 Para fazer um pedido, envie *"pedido"* ou liste os itens que deseja!`;
+  msg += `\n📅 Para marcar, envie *"agendar"*.`;
 
   await sendWhatsAppMessage(store, to, {
     type: 'text',
@@ -1091,7 +1076,7 @@ async function sendProductDetail(store, to, productId) {
   if (!product) {
     await sendWhatsAppMessage(store, to, {
       type: 'text',
-      text: { body: 'Produto não encontrado.' },
+      text: { body: 'Serviço não encontrado.' },
     });
     return;
   }
@@ -1109,8 +1094,8 @@ async function sendProductDetail(store, to, productId) {
       body: { text: msg },
       action: {
         buttons: [
-          { type: 'reply', reply: { id: `order_${product.id}`, title: '🛒 Pedir Este' } },
-          { type: 'reply', reply: { id: 'ver_catalogo', title: '📋 Ver Catálogo' } },
+          { type: 'reply', reply: { id: `order_${product.id}`, title: '📅 Marcar este' } },
+          { type: 'reply', reply: { id: 'ver_catalogo', title: '💇 Ver serviços' } },
         ],
       },
     },
@@ -1124,13 +1109,13 @@ async function sendOrderInstructions(store, to, page = 0) {
   if (products.length === 0) {
     await sendWhatsAppMessage(store, to, {
       type: 'text',
-      text: { body: 'Nenhum produto disponível para pedido no momento.' },
+      text: { body: 'Nenhum serviço disponível para marcar agora.' },
     });
     return;
   }
 
   const sections = [{
-    title: 'Escolha um produto',
+    title: 'Escolha um serviço',
     rows: paginatedRows(products, page, 'pageorder', p => ({
       id: `order_${p.id}`,
       title: p.name.substring(0, 24),
@@ -1143,10 +1128,10 @@ async function sendOrderInstructions(store, to, page = 0) {
     interactive: {
       type: 'list',
       body: {
-        text: `🛒 *Fazer Pedido*\n\nEscolha o produto ou serviço que deseja:`,
+        text: `📅 *Marcar horário*\n\nQual serviço você quer?`,
       },
       action: {
-        button: 'Escolher Produto',
+        button: 'Escolher serviço',
         sections,
       },
     },
@@ -1165,17 +1150,17 @@ async function sendCustomerOrders(store, from) {
     if (orders.length === 0) {
       await sendWhatsAppMessage(store, from, {
         type: 'text',
-        text: { body: 'Você não tem pedidos recentes. 📋' },
+        text: { body: 'Você ainda não tem horários marcados. 📋' },
       });
       return;
     }
 
-    let msg = `📄 *Seus Pedidos Recentes*\n\n`;
+    let msg = `📄 *Seus horários*\n\n`;
     const statusEmoji = { pending: '⏳', confirmed: '✅', completed: '🎉', cancelled: '❌' };
     const statusLabel = { pending: 'Aguardando', confirmed: 'Confirmado', completed: 'Concluído', cancelled: 'Cancelado' };
 
     orders.forEach(o => {
-      msg += `*Pedido #${o.id}:* ${o.product?.name || 'Produto removido'}\n`;
+      msg += `*Pedido #${o.id}:* ${o.product?.name || 'Serviço removido'}\n`;
       msg += `  💰 R$ ${(o.totalPrice || 0).toFixed(2).replace('.', ',')}\n`;
       msg += `  ${statusEmoji[o.status] || '❓'} ${statusLabel[o.status] || o.status}\n`;
       if (o.scheduledTime) msg += `  🕐 ${o.scheduledTime}\n`;
