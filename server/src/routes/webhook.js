@@ -44,6 +44,18 @@ function getConvoKey(storeId, phone) {
   return `${storeId}:${phone}`;
 }
 
+// The salon removed us in Meta, or Meta disabled the account: stop the bot and ask for a new connection.
+const ACCOUNT_LOST = { PARTNER_REMOVED: 'Seu WhatsApp foi desconectado na Meta. Conecte de novo para o robô voltar.', PARTNER_APP_UNINSTALLED: 'Seu WhatsApp foi desconectado na Meta. Conecte de novo para o robô voltar.', ACCOUNT_DELETED: 'A conta do WhatsApp foi apagada na Meta. Conecte de novo.' };
+async function handleAccountUpdate(entry, value) {
+  const wabaId = String(value.waba_info?.waba_id || entry.id || '');
+  if (!/^\d+$/.test(wabaId)) return;
+  if (ACCOUNT_LOST[value.event]) {
+    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { botEnabled: false, officialStatus: 'reauthorization_required', officialLastError: ACCOUNT_LOST[value.event] } });
+  } else if (value.event === 'DISABLED_UPDATE' && value.ban_info?.waba_ban_state === 'DISABLE') {
+    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { officialLastError: 'A Meta bloqueou esta conta do WhatsApp. Veja os avisos no Gerenciador do WhatsApp.' } });
+  }
+}
+
 const HANDOFF_MS = (Number(process.env.WHATSAPP_HUMAN_HANDOFF_MINUTES) || 120) * 60000;
 const handoffKey = (storeId, phone) => `${storeId}:handoff:${phone}`;
 async function humanIsAttending(storeId, phone) {
@@ -92,6 +104,7 @@ router.post('/meta', async (req, res) => {
   if (!verifyMetaSignature(req)) return res.sendStatus(401);
   try {
     for (const entry of req.body?.entry || []) for (const change of entry.changes || []) {
+      if (change.field === 'account_update') { await handleAccountUpdate(entry, change.value || {}); continue; }
       if (change.field && !['messages', 'smb_message_echoes'].includes(change.field)) continue;
       const value = change.value || {};
       const phoneId = value.metadata?.phone_number_id;
