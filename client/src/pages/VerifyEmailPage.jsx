@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { authAPI } from '../services/api';
 
@@ -9,10 +9,13 @@ export function VerifyEmailPage() {
   const [status, setStatus] = useState(() => token ? 'loading' : 'error'); // loading | success | error
   const [message, setMessage] = useState(() => token ? '' : 'Link de verificação inválido.');
 
+  const sent = useRef(null);
+
   useEffect(() => {
-    if (!token) {
+    if (!token || sent.current === token) {
       return;
     }
+    sent.current = token;
     authAPI.verifyEmail(token)
       .then(() => setStatus('success'))
       .catch((err) => {
@@ -52,7 +55,7 @@ export function VerifyEmailPage() {
               </div>
               <h2>E-mail <em>confirmado</em></h2>
               <p>
-                Sua conta foi ativada com sucesso. Agora você já pode entrar e começar a usar o AGTgestor.
+                Pronto! Agora é só entrar com seu e-mail e senha.
               </p>
               <Link
                 to="/login"
@@ -60,7 +63,7 @@ export function VerifyEmailPage() {
                 className="btn btn-primary btn-lg"
                 style={{ display: 'inline-block', marginTop: '16px', padding: '14px 40px' }}
               >
-                Ir para o login
+                Entrar agora
               </Link>
             </div>
           )}
