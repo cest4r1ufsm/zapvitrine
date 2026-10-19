@@ -90,7 +90,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
         finally { finish(); }
       },
       onError: err => { if (mounted.current && generation.current === attempt) { setError(err.message); setNotice(''); } finish(); },
-      onCancel: () => { if (mounted.current && generation.current === attempt) setNotice('A janela foi fechada. Toque no botão para tentar de novo.'); finish(); },
+      onCancel: () => { if (mounted.current && generation.current === attempt) setNotice('A janela do Facebook foi fechada ou bloqueada. Toque no botão de novo. Se nada abrir, permita janelas (pop-ups) para este site.'); finish(); },
     });
   };
 
