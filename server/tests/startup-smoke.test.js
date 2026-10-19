@@ -42,6 +42,8 @@ async function run(production) {
       assert.equal(ready, true, output);
       const response = await fetch(`http://127.0.0.1:${selectedPort}/api/health`);
       assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin', 'Restricted Mapbox tokens require an origin referrer');
+      assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups', 'Meta signup popup must report back to the page');
+      assert.match(response.headers.get('content-security-policy'), /connect-src[^;]*https:\/\/connect\.facebook\.net/, 'Meta SDK loads its app config');
     }
   } finally { child.kill('SIGTERM'); await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000))]); if (child.exitCode === null) child.kill('SIGKILL'); }
 }
