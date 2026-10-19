@@ -110,4 +110,25 @@ async function sendOrderUpdate(store, to, text, params) {
     throw pending;
   }
 }
-module.exports = { config, encrypt, decrypt, connection, graph, send, normalizePhone, ensureTemplates, sendOrderUpdate, ORDER_TEMPLATE };
+// Two-step verification PIN for numbers we register. Derived, so it can be recomputed without storing it.
+function registrationPin(phoneId) {
+  const digest = crypto.createHmac('sha256', Buffer.from(process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY, 'hex')).update(`pin:${phoneId}`).digest();
+  return String(digest.readUInt32BE(0) % 1000000).padStart(6, '0');
+}
+async function registerPhone(phoneId, token) {
+  try { await graph(`${phoneId}/register`, token, { method: 'POST', body: { messaging_product: 'whatsapp', pin: registrationPin(phoneId) } }); }
+  catch (err) {
+    const error = new Error('A Meta não ativou este número. Confira se ele recebeu o código de verificação e tente de novo.');
+    error.metaCode = err.metaCode; error.status = 502;
+    throw error;
+  }
+}
+async function syncBusinessApp(phoneId, token) {
+  // Contacts first, then history, as Meta documents. Each type can only be requested once per onboarding.
+  for (const syncType of ['smb_app_state_sync', 'history']) {
+    try { await graph(`${phoneId}/smb_app_data`, token, { method: 'POST', body: { messaging_product: 'whatsapp', sync_type: syncType } }); }
+    catch (err) { return { ok: false, step: syncType, metaCode: err.metaCode }; }
+  }
+  return { ok: true };
+}
+module.exports = { config, encrypt, decrypt, connection, graph, send, normalizePhone, ensureTemplates, sendOrderUpdate, ORDER_TEMPLATE, registerPhone, syncBusinessApp, registrationPin };
