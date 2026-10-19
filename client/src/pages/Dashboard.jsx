@@ -17,6 +17,8 @@ import OfficialWhatsAppConnection from '../components/OfficialWhatsAppConnection
 import { btnGlass } from '../styles/buttons';
 import { panel } from '../styles/surfaces';
 import { hasPremiumAccess } from '../services/entitlement';
+import SetupWizard from './SetupWizard';
+import { SETUP_SEEN_KEY, setupStatus } from '../services/setupStatus';
 
 const OwnerListingPage = lazy(() => import('../features/directory/OwnerListingPage'));
 const ModerationPage = lazy(() => import('../features/directory/ModerationPage'));
@@ -48,6 +50,9 @@ function Sidebar({ open, onClose }) {
         <Link to="/dashboard" className={`sidebar-link${location.pathname === '/dashboard' && !isActive('/dashboard/loja') && !isActive('/dashboard/categorias') && !isActive('/dashboard/servicos') && !isActive('/dashboard/agenda') && !isActive('/dashboard/chatbot') && !isActive('/dashboard/pedidos') && !isActive('/dashboard/admin') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="home" /></span> Hoje
         </Link>
+        <Link to="/dashboard/comecar" className={`sidebar-link${isActive('/dashboard/comecar') ? ' active' : ''}`} onClick={onClose}>
+          <span className="icon"><UIIcon name="check" /></span> Configurar passo a passo
+        </Link>
         <Link to="/dashboard/agenda" className={`sidebar-link${isActive('/dashboard/agenda') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="calendar" /></span> Agenda
         </Link>
@@ -61,22 +66,22 @@ function Sidebar({ open, onClose }) {
           <span className="icon"><UIIcon name="professionals" /></span> Profissionais
         </Link>
         <Link to="/dashboard/chatbot" className={`sidebar-link${isActive('/dashboard/chatbot') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="bot" /></span> Atendimento WhatsApp
+          <span className="icon"><UIIcon name="bot" /></span> Robô do WhatsApp
         </Link>
         <Link to="/dashboard/diretorio" className={`sidebar-link${isActive('/dashboard/diretorio') ? ' active' : ''}`} onClick={onClose}><span className="icon"><UIIcon name="store" /></span> Meu salão no mapa</Link>
         <Link to="/explorar" className="sidebar-link" onClick={onClose}><span className="icon"><UIIcon name="search" /></span> Encontrar salões</Link>
         {user?.role === 'admin' && <Link to="/dashboard/moderacao" className={`sidebar-link${isActive('/dashboard/moderacao') ? ' active' : ''}`} onClick={onClose}>Moderar diretório</Link>}
         <Link to="/dashboard/loja" className={`sidebar-link${isActive('/dashboard/loja') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="store" /></span> Meu negócio
+          <span className="icon"><UIIcon name="store" /></span> Dados e horários
         </Link>
         <Link to="/dashboard/categorias" className={`sidebar-link${isActive('/dashboard/categorias') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="categories" /></span> Categorias
         </Link>
         <Link to="/dashboard/pedidos" className={`sidebar-link${isActive('/dashboard/pedidos') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="orders" /></span> Solicitações
+          <span className="icon"><UIIcon name="orders" /></span> Pedidos de horário
         </Link>
         <Link to="/dashboard/bloqueios" className={`sidebar-link${isActive('/dashboard/bloqueios') ? ' active' : ''}`} onClick={onClose}>
-          <span className="icon"><UIIcon name="blocked" /></span> Bloqueios
+          <span className="icon"><UIIcon name="blocked" /></span> Folgas e bloqueios
         </Link>
         <Link to="/dashboard/billing" className={`sidebar-link${isActive('/dashboard/billing') ? ' active' : ''}`} onClick={onClose}>
           <span className="icon"><UIIcon name="billing" /></span> Assinatura e conta
@@ -101,34 +106,39 @@ function Sidebar({ open, onClose }) {
   );
 }
 
-function OnboardingChecklist({ products, store, professionals }) {
-  let config;
-  try { config = typeof store?.schedulingConfig === 'string' ? JSON.parse(store.schedulingConfig) : store?.schedulingConfig; } catch { config = null; }
-  const hasHours = Object.values(config?.hours || {}).some(day => day.active && /^([01]\d|2[0-3]):[0-5]\d$/.test(day.open) && /^([01]\d|2[0-3]):[0-5]\d$/.test(day.close) && day.open < day.close);
+function OnboardingChecklist({ products, store }) {
+  const status = setupStatus(store, products);
   const steps = [
-    { done: Boolean(store?.name && store?.phone), label: 'Dados do salão', path: '/dashboard/loja' },
-    { done: products.some(product => product.active), label: 'Primeiro serviço', path: '/dashboard/servicos' },
-    { done: hasHours, label: 'Horários de atendimento', path: '/dashboard/loja' },
+    { key: 'salon', label: 'Nome e WhatsApp do salão' },
+    { key: 'hours', label: 'Dias e horários' },
+    { key: 'service', label: 'Primeiro serviço' },
+    { key: 'whatsapp', label: 'Robô no WhatsApp' },
   ];
-  const next = steps.find(step => !step.done);
-  const complete = steps.filter(step => step.done).length;
-  if (!next) return <section className="flow-setup flow-setup-complete"><details><summary>Configuração básica pronta · revisar</summary><p>Confira os horários antes de compartilhar seu link.</p><div className="directory-actions"><Link to="/dashboard/loja">Dados e horários</Link><Link to="/dashboard/servicos">Serviços</Link><Link to="/dashboard/diretorio">Publicar meu salão</Link><Link to="/dashboard/chatbot">Conectar WhatsApp</Link></div></details></section>;
-  return <section className="flow-setup"><h3>{next ? 'Prepare seu primeiro atendimento' : 'Configuração básica pronta'}</h3><p>{next ? `${complete} de 3 etapas concluídas` : 'Confira os horários em sua agenda antes de compartilhar seu link.'}</p><ol>{steps.map((step, index) => <li key={step.label}><span>{step.done ? <UIIcon name="check" size={16} /> : index + 1}</span><strong>{step.label}</strong>{!step.done && <Link to={step.path}>Configurar</Link>}</li>)}</ol>{next ? <Link className="btn btn-primary" to={next.path}>Continuar configuração</Link> : <Link className="btn btn-primary" to="/dashboard/agenda">Testar na agenda</Link>}<details><summary>Equipe, divulgação e automação</summary><div className="directory-actions"><Link to="/dashboard/profissionais">{professionals.length ? 'Gerenciar equipe' : 'Adicionar equipe'}</Link><Link to="/dashboard/diretorio">Publicar meu salão</Link><Link to="/dashboard/chatbot">Conectar WhatsApp</Link></div></details></section>;
+  const complete = steps.filter(step => status[step.key]).length;
+  if (complete === steps.length) return null;
+  return <section className="flow-setup"><h3>Deixe seu salão pronto</h3><p>{complete} de {steps.length} passos feitos. Leva uns 3 minutos.</p><ol>{steps.map((step, index) => <li key={step.key}><span>{status[step.key] ? <UIIcon name="check" size={16} /> : index + 1}</span><strong>{step.label}</strong></li>)}</ol><Link className="btn btn-primary" to="/dashboard/comecar">{complete ? 'Continuar' : 'Começar agora'}</Link></section>;
 }
 
 function DashboardHome() {
   const { store } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [professionals, setProfessionals] = useState([]);
   const [copied, setCopied] = useState(false);
   const { show: showOnboarding, setShow: setShowOnboarding } = useOnboarding();
+  const navigate = useNavigate();
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    productsAPI.list().then(setProducts).catch(() => {});
+    productsAPI.list().then(list => { setProducts(list); setLoaded(true); }).catch(() => {});
     categoriesAPI.list().then(setCategories).catch(() => {});
-    import('../services/api').then(m => m.default.get('/professionals').then(setProfessionals).catch(() => {}));
   }, []);
+
+  useEffect(() => {
+    // A brand-new salon goes straight to the guided setup once.
+    if (!loaded || !store || localStorage.getItem(SETUP_SEEN_KEY)) return;
+    const status = setupStatus(store, products);
+    if (!status.salon && !status.service) navigate('/dashboard/comecar', { replace: true });
+  }, [loaded, store, products, navigate]);
 
   const storeUrl = `${window.location.origin}/loja/${store?.slug || ''}`;
 
@@ -152,10 +162,10 @@ function DashboardHome() {
         </button>
       </div>
       <TodayAppointments timeZone={store?.timeZone} />
-      <OnboardingChecklist products={products} store={store} professionals={professionals} />
+      <OnboardingChecklist products={products} store={store} />
 
       <div className="store-link-card">
-        <h3><UIIcon name="link" size={18} /> Sua página de serviços</h3>
+        <h3><UIIcon name="link" size={18} /> Link para seus clientes marcarem horário</h3>
         <div className="store-link-url">
           <span style={{ flex: 1 }}>{storeUrl}</span>
           <button className="btn btn-primary btn-sm" onClick={copyLink}>
@@ -185,8 +195,8 @@ function DashboardHome() {
         </div>
         <div className="stat-card">
           <div className="stat-icon"><UIIcon name="phone" /></div>
-          <div className="stat-value stat-value-status">{store?.officialStatus === 'connected' ? 'Conectado' : 'Ver conexão'}</div>
-          <div className="stat-label">Atendimento WhatsApp</div>
+          <div className="stat-value stat-value-status">{store?.officialStatus === 'connected' ? 'Ligado' : 'Desligado'}</div>
+          <div className="stat-label">Robô do WhatsApp</div>
         </div>
       </div>
 
@@ -307,7 +317,7 @@ function StoreSettings() {
       await storeAPI.update({ ...form, schedulingConfig: JSON.stringify(sched) });
       await refreshStore();
       setWarning('');
-      setSuccess('Loja atualizada com sucesso!');
+      setSuccess('Salvo!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message || 'Erro ao salvar as alterações.');
@@ -333,8 +343,8 @@ function StoreSettings() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Minha Loja</h1>
-          <p>Configure as informações da sua vitrine</p>
+          <h1>Dados e horários</h1>
+          <p>O que seus clientes veem e quando você atende.</p>
         </div>
       </div>
 
@@ -342,7 +352,7 @@ function StoreSettings() {
       {warning && <div className="alert" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#b45309', border: '1px solid rgba(245, 158, 11, 0.35)' }}>{warning}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
-      <PageGuide pageKey="store-settings" title="Como configurar sua loja" steps={[
+      <PageGuide pageKey="store-settings" title="Como preencher" steps={[
         'Preencha o <strong>nome, telefone e endereço</strong> da sua empresa nas informações básicas.',
         'Em <strong>Configuração de Agenda</strong>, ative os dias que você atende marcando a caixinha de cada dia.',
         'Defina o <strong>horário de início e fim</strong> de cada dia ativo. O chatbot só vai oferecer horários dentro desse intervalo.',
@@ -366,23 +376,24 @@ function StoreSettings() {
               </div>
             </div>
             <div className="form-group">
-              <label>Nome da Loja</label>
-              <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Barbearia do João" required />
+              <label>Nome do salão</label>
+              <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Salão da Ana" required />
             </div>
             <div className="form-group">
-              <label>Link da Vitrine (slug)</label>
-              <input className="form-input" value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} placeholder="ex: barbearia-do-joao" required />
+              <label>Final do seu link</label>
+              <input className="form-input" value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} placeholder="ex: salao-da-ana" required />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Seu link: {window.location.host}/loja/{form.slug || '...'}</span>
             </div>
             <div className="form-group">
-              <label>Descrição</label>
-              <textarea className="form-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Descreva seu negócio..." rows={3} />
+              <label>Sobre o salão (opcional)</label>
+              <textarea className="form-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Ex: Cortes, escova e manicure no centro." rows={3} />
             </div>
           </div>
 
           <div className="settings-section">
             <h3>Contato e endereço</h3>
             <div className="form-group">
-              <label>WhatsApp (com DDD)</label>
+              <label>WhatsApp do salão (com DDD)</label>
               <input className="form-input" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="Ex: 11999998888" required />
             </div>
             <div className="form-group">
@@ -390,14 +401,14 @@ function StoreSettings() {
               <input className="form-input" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Ex: Rua das Flores, 123" />
             </div>
             <div className="form-group">
-              <label>Horário de Funcionamento (descrição)</label>
+              <label>Horário escrito para a página (opcional)</label>
               <textarea className="form-input" value={form.businessHours} onChange={e => setForm({ ...form, businessHours: e.target.value })} placeholder="Ex: Seg-Sex: 9h às 18h&#10;Sáb: 9h às 13h" rows={2} />
             </div>
             <div className="form-group">
-              <label>Configuração de agenda (para agendamento automático)</label>
+              <label>Dias e horários de atendimento</label>
               <div style={{ ...panel, padding: '12px 14px', marginTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>Intervalo entre slots:</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Horários de quanto em quanto tempo:</span>
                   <select style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }} value={sched.slotInterval} onChange={e => setSched(s => ({ ...s, slotInterval: parseInt(e.target.value, 10) }))}>
                     {SLOT_INTERVALS.map(v => <option key={v} value={v}>{v} min</option>)}
                   </select>
@@ -442,7 +453,7 @@ function StoreSettings() {
               </div>
             </div>
             <div className="form-group">
-              <label>Cor do Tema</label>
+              <label>Cor da sua página</label>
               <div className="color-picker-row">
                 <input type="color" value={form.themeColor} onChange={e => setForm({ ...form, themeColor: e.target.value })} />
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{form.themeColor}</span>
@@ -891,7 +902,7 @@ function ChatbotPage() {
       };
       const updated = await storeAPI.updateChatbot(payload);
       setConfig(prev => ({ ...prev, ...updated }));
-      setSuccess('Chatbot atualizado com sucesso!');
+      setSuccess('Salvo!');
       void refreshStore().catch(() => {});
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -910,8 +921,8 @@ function ChatbotPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Chatbot WhatsApp</h1>
-          <p>Configure o atendimento automático da sua loja</p>
+          <h1>Robô do WhatsApp</h1>
+          <p>Ele responde seus clientes e marca horários sozinho.</p>
         </div>
       </div>
 
@@ -921,10 +932,10 @@ function ChatbotPage() {
       <div className="settings-grid">
         {/* Coluna esquerda: Configurações */}
         <div className="settings-section">
-          <h3>Conexão com WhatsApp</h3>
+          <h3>1. Conecte seu WhatsApp</h3>
 
           <OfficialWhatsAppConnection onStatusChange={handleOfficialStatus} />
-          {!officialConnection?.connected && <details>
+          {!officialConnection?.connected && (import.meta.env.DEV || waStatus.status !== 'disconnected') && <details>
             <summary style={{ cursor: 'pointer', padding: '12px 0', minHeight: 44 }}>Conexão por aparelho vinculado</summary>
             <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>Use esta opção enquanto a conexão oficial é habilitada. A confirmação acontece no WhatsApp.</p>
             <WhatsAppConnection initialStatus={waStatus} onStatusChange={handleWhatsAppStatus} />
@@ -939,24 +950,24 @@ function ChatbotPage() {
                     <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: config?.botEnabled ? '23px' : '3px', transition: 'var(--transition)', boxShadow: 'var(--shadow-sm)' }} />
                   </button>
                   <div>
-                    <div style={{ fontWeight: 600 }}>{config?.botEnabled ? 'Chatbot ativado' : 'Chatbot desativado'}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{saving ? 'Salvando alteração...' : config?.botEnabled ? 'O bot está respondendo automaticamente' : 'Ative para responder clientes automaticamente'}</div>
+                    <div style={{ fontWeight: 600 }}>{config?.botEnabled ? 'Robô ligado' : 'Robô desligado'}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{saving ? 'Salvando...' : config?.botEnabled ? 'Respondendo seus clientes agora' : 'Toque para ligar'}</div>
                   </div>
                 </label>
               </div>
 
-              <h3 style={{ marginTop: '8px' }}>Mensagens</h3>
+              <h3 style={{ marginTop: '8px' }}>2. Mensagens (opcional)</h3>
               <div className="form-group">
-                <label>Mensagem de Boas-vindas</label>
+                <label>Primeira mensagem</label>
                 <textarea className="form-input" value={config?.botGreeting || ''}
                   onChange={e => setConfig({ ...config, botGreeting: e.target.value })}
                   placeholder={`Olá. Bem-vindo(a) à ${store?.name}.\nComo posso te ajudar?`}
                   rows={3} />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Essa é a primeira mensagem que o cliente recebe ao enviar qualquer coisa</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>O que o cliente recebe quando manda a primeira mensagem.</span>
               </div>
 
               <div className="form-group">
-                <label>Mensagem Fora do Horário (opcional)</label>
+                <label>Mensagem fora do horário</label>
                 <textarea className="form-input" value={config?.botAwayMessage || ''}
                   onChange={e => setConfig({ ...config, botAwayMessage: e.target.value })}
                   placeholder="Estamos fora do horário de atendimento. Retornaremos em breve!"
@@ -965,7 +976,7 @@ function ChatbotPage() {
 
               <div style={{ marginTop: '20px', textAlign: 'right' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Salvando...' : 'Salvar configurações'}
+                  {saving ? 'Salvando...' : 'Salvar mensagens'}
                 </button>
               </div>
             </>
@@ -975,7 +986,7 @@ function ChatbotPage() {
         {/* Coluna direita: Preview e Produtos */}
         <div>
           <div className="settings-section" style={{ marginBottom: '24px' }}>
-            <h3>Prévia do chatbot</h3>
+            <h3>Como o robô responde</h3>
             <div style={{ background: '#0B141A', borderRadius: 'var(--radius-lg)', padding: '20px', fontFamily: 'system-ui' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
@@ -988,15 +999,15 @@ function ChatbotPage() {
                   <div style={{ color: '#8696A0', fontSize: '0.8rem' }}>Como posso te ajudar?</div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {['Ver catálogo', 'Fazer pedido', 'Meus pedidos'].map(btn => (
+                  {['Marcar horário', 'Ver preços', 'Meus horários'].map(btn => (
                     <span key={btn} style={{ padding: '6px 14px', background: '#1F2C34', border: '1px solid #2A3942', borderRadius: '20px', fontSize: '0.8rem', color: '#53BDEB' }}>{btn}</span>
                   ))}
                 </div>
                 <div style={{ alignSelf: 'flex-end', background: '#005C4B', color: 'white', padding: '8px 12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', fontSize: '0.85rem' }}>
-                  Ver catálogo
+                  Ver preços
                 </div>
                 <div style={{ alignSelf: 'flex-start', background: '#1F2C34', color: 'white', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', fontSize: '0.85rem' }}>
-                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>Serviços disponíveis:</div>
+                  <div style={{ marginBottom: '6px', fontWeight: 600 }}>Preços:</div>
                   {activeProducts.slice(0, 3).map(p => (
                     <div key={p.id} style={{ padding: '4px 0', borderBottom: '1px solid #2A3942', display: 'flex', justifyContent: 'space-between' }}>
                       <span>{p.name}</span>
@@ -1011,9 +1022,9 @@ function ChatbotPage() {
           </div>
 
           <div className="settings-section">
-            <h3>Serviços no chatbot ({activeProducts.length})</h3>
+            <h3>Serviços que o robô oferece ({activeProducts.length})</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-              Todos os serviços <strong>ativos</strong> aparecem automaticamente no chatbot. Para remover um serviço do bot, desative-o na página de <a href="/dashboard/servicos" style={{ color: 'var(--primary)' }}>Serviços</a>.
+              O robô oferece todos os serviços <strong>ativos</strong>. Para tirar um, desative em <a href="/dashboard/servicos" style={{ color: 'var(--primary)' }}>Serviços</a>.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
               {activeProducts.map(p => (
@@ -1025,7 +1036,7 @@ function ChatbotPage() {
               ))}
               {activeProducts.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                  Nenhum serviço ativo. Adicione serviços primeiro.
+                  Nenhum serviço ainda. Cadastre em Serviços.
                 </div>
               )}
             </div>
@@ -1286,6 +1297,7 @@ export default function Dashboard() {
       <main className="main-content flow-professional-main">
         <Routes>
           <Route path="" element={<DashboardHome />} />
+          <Route path="comecar" element={<SetupWizard />} />
           <Route path="diretorio" element={<Suspense fallback={<p role="status">Carregando perfil…</p>}><OwnerListingPage /></Suspense>} />
           <Route path="moderacao" element={<Suspense fallback={<p role="status">Carregando moderação…</p>}><ModerationPage /></Suspense>} />
           <Route path="loja" element={<StoreSettings />} />
