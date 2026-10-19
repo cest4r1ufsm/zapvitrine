@@ -292,6 +292,7 @@ router.patch('/:id/status', auth, async (req, res) => {
     let notification = { status: 'not_requested' };
     try {
       let msg = '';
+      const statusLabel = { confirmed: 'confirmado', completed: 'concluído', cancelled: 'cancelado' }[status];
       if (status === 'confirmed') {
         msg = `✅ Olá, ${updated.customerName}! Seu pedido *#${updated.id}* de *${updated.product?.name || 'produto'}* foi *confirmado* pela loja.`;
       } else if (status === 'completed') {
@@ -302,7 +303,8 @@ router.patch('/:id/status', auth, async (req, res) => {
 
       if (msg && updated.customerPhone) {
         if (store.officialPhoneId || store.botPhoneId && store.botToken) {
-          const result = await require('../services/officialWhatsApp').send(store, updated.customerPhone, { type: 'text', text: { body: msg } });
+          const params = [updated.customerName, updated.id, updated.product?.name || 'produto', statusLabel];
+          const result = await require('../services/officialWhatsApp').sendOrderUpdate(store, updated.customerPhone, msg, params);
           notification = { status: 'accepted', messageId: result.id };
         } else {
           const result = await sendMessageToCustomer(store.id, updated.customerPhone, msg);
@@ -310,7 +312,7 @@ router.patch('/:id/status', auth, async (req, res) => {
         }
       }
     } catch (e) {
-      notification = { status: 'failed', error: 'Não foi possível enviar a notificação. O status do pedido foi salvo.' };
+      notification = { status: 'failed', error: e.metaCode >= 132000 && e.metaCode <= 132016 ? e.message : 'Não foi possível enviar a notificação. O status do pedido foi salvo.' };
       console.error('Erro ao notificar cliente via WhatsApp:', e.message);
     }
 
