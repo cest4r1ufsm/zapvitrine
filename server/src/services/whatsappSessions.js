@@ -429,7 +429,7 @@ function createWhatsAppSessions({
     const normalized = normalizeConnectOptions(options); // Antes de qualquer leitura/escrita.
     return serialize(storeId, () => connectLocked(storeId, normalized));
   }
-  function stopSession(storeId) {
+  function stopSession(storeId, { preserveBotEnabled = false } = {}) {
     // Interrompe callbacks/timers já na chamada, inclusive durante um /connect em voo.
     const existing = sessions.get(storeId);
     if (existing) {
@@ -443,7 +443,7 @@ function createWhatsAppSessions({
       if (current) await dispose(current, true);
       sessions.delete(storeId);
       await removeAuth(storeId);
-      await prisma.store.update({ where: { id: storeId }, data: { botEnabled: false } });
+      if (!preserveBotEnabled) await prisma.store.update({ where: { id: storeId }, data: { botEnabled: false } });
     });
   }
   return { startSession, stopSession, getSessionStatus, sessions };

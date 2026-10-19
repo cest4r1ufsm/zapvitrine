@@ -42,7 +42,7 @@ async function run() {
     const auth = { Authorization: `Bearer ${jwt.sign({ userId: user.id }, process.env.JWT_SECRET)}`, 'Content-Type': 'application/json' };
     const request = (path, method = 'GET', data) => realFetch(base + path, { method, headers: auth, ...(data && { body: JSON.stringify(data) }) });
     const cfg = await (await request('/official/config')).json();
-    assert.equal(cfg.available, true); assert.ok(cfg.state); assert.ok(!JSON.stringify(cfg).includes('test-app-secret'));
+    assert.equal(cfg.available, true); assert.equal(cfg.embeddedSignupVersion, 'v4'); assert.ok(cfg.state); assert.ok(!JSON.stringify(cfg).includes('test-app-secret'));
     tokenWaba = '999';
     let response = await request('/official/connect', 'POST', { code: 'code', state: cfg.state, wabaId: '777' });
     assert.equal(response.status, 400, 'untrusted WABA rejected');
@@ -61,6 +61,7 @@ async function run() {
     assert.equal(registered, 1, 'new Cloud API number is registered with a PIN');
     assert.deepEqual(syncs, [], 'no business app sync for a new number');
     const store = await prisma.store.findUnique({ where: { id: user.store.id } });
+    assert.equal(store.botEnabled, true, 'successful onboarding turns the chatbot on');
     assert.equal(store.officialTokenExpiresAt.getTime(), dataAccessExpiresAt * 1000, 'earlier data access expiry is persisted');
     assert.ok(store.officialToken !== 'secret-token'); assert.equal(service.decrypt(store.officialToken), 'secret-token');
     const safe = await (await request('/store')).json(); assert.equal(safe.officialToken, undefined);
@@ -113,6 +114,10 @@ async function run() {
     assert.equal((await response.json()).syncPending, false);
     assert.equal(registered, registeredBefore, 'coexistence number is not re-registered');
     assert.deepEqual(syncs, ['smb_app_state_sync', 'history']);
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'smb_app_state_sync', value: { data: [] } }, { field: 'history', value: { errors: [{ code: 2593109 }] } }] }] });
+    const syncProgress = JSON.parse((await prisma.whatsAppConversation.findUnique({ where: { id: `${store.id}:smb_sync` } })).state);
+    assert.equal(syncProgress.steps.smb_app_state_sync.status, 'completed', 'contact sync webhook confirms completion');
+    assert.equal(syncProgress.steps.history.status, 'completed_without_history', 'declined history sharing is a valid terminal state');
     syncFails = true;
     const failCfg = await (await request('/official/config')).json();
     response = await request('/official/connect', 'POST', { code: 'code4', state: failCfg.state, wabaId: '777', onboarding: 'business_app' });
@@ -145,6 +150,19 @@ async function run() {
     const removed = await prisma.store.findUnique({ where: { id: store.id } });
     assert.equal(removed.officialStatus, 'reauthorization_required', 'removal in Meta stops the bot');
     assert.equal(removed.botEnabled, false);
+    await prisma.store.update({ where: { id: store.id }, data: { officialStatus: 'connected', botEnabled: true } });
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'account_update', value: { event: 'ACCOUNT_OFFBOARDED' } }] }] });
+    let lifecycle = await prisma.store.findUnique({ where: { id: store.id } });
+    assert.equal(lifecycle.officialStatus, 'offboarded_waiting_reconnect');
+    assert.equal(lifecycle.botEnabled, false, 'offboarding pauses automation');
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'account_update', value: { event: 'ACCOUNT_RECONNECTED' } }] }] });
+    lifecycle = await prisma.store.findUnique({ where: { id: store.id } });
+    assert.equal(lifecycle.officialStatus, 'connected');
+    assert.equal(lifecycle.botEnabled, true, 'confirmed reconnect resumes automation');
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'account_update', value: { event: 'DISABLED_UPDATE', ban_info: { waba_ban_state: 'DISABLE' } } }] }] });
+    lifecycle = await prisma.store.findUnique({ where: { id: store.id } });
+    assert.equal(lifecycle.officialStatus, 'blocked');
+    assert.equal(lifecycle.botEnabled, false, 'Meta account block stops automation');
     response = await request('/official/disconnect', 'DELETE'); assert.equal((await response.json()).connection.connected, false);
     assert.equal((await prisma.store.findUnique({ where: { id: store.id } })).officialToken, null);
     console.log('Official WhatsApp: authorization ownership, one-time state, encryption, secret redaction, signature, batch inbox, deduplication, send failure, delivery status and disconnect passed.');

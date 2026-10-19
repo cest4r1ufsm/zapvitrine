@@ -70,9 +70,9 @@ async function clearConversationState(storeId) {
   await prisma.whatsAppConversation.deleteMany({ where: { id: { startsWith: `baileys:${storeId}:` } } });
 }
 
-async function stopSession(storeId) {
+async function stopSession(storeId, options) {
   const clearing = clearConversationState(storeId);
-  const stopping = stopSessionInternal(storeId);
+  const stopping = stopSessionInternal(storeId, options);
   await Promise.all([clearing, stopping]);
 }
 

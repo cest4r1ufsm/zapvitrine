@@ -5,7 +5,12 @@ function config() {
   const required = ['META_APP_ID', 'META_APP_SECRET', 'META_SIGNUP_CONFIG_ID', 'META_WEBHOOK_VERIFY_TOKEN', 'WHATSAPP_TOKEN_ENCRYPTION_KEY'];
   const missing = required.filter(k => !process.env[k]);
   if (process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY && !/^[a-f0-9]{64}$/i.test(process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY)) missing.push('WHATSAPP_TOKEN_ENCRYPTION_KEY_INVALID');
-  return { available: missing.length === 0, missing, appId: process.env.META_APP_ID || null, configId: process.env.META_SIGNUP_CONFIG_ID || null, graphVersion: process.env.META_GRAPH_VERSION || 'v23.0' };
+  return { available: missing.length === 0, missing, appId: process.env.META_APP_ID || null, configId: process.env.META_SIGNUP_CONFIG_ID || null, graphVersion: process.env.META_GRAPH_VERSION || 'v23.0', embeddedSignupVersion: 'v4' };
+}
+function publicError(message, { status = 400, metaCode, metaSubcode, traceId, network = false } = {}) {
+  const error = new Error(message);
+  Object.assign(error, { publicMessage: true, status, metaCode, metaSubcode, traceId, network });
+  return error;
 }
 function encrypt(token) {
   const iv = crypto.randomBytes(12);
@@ -27,14 +32,20 @@ function connection(store) {
 async function graph(endpoint, token, { method = 'GET', body } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`https://graph.facebook.com/${config().graphVersion}/${endpoint}`, {
-    method, headers, ...(body && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000),
-  });
-  const data = await response.json();
+  let response, data;
+  try {
+    response = await fetch(`https://graph.facebook.com/${config().graphVersion}/${endpoint}`, {
+      method, headers, ...(body && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    // Network failure or timeout: the request may or may not have reached Meta; never expose the raw error.
+    throw publicError('Não deu para falar com a Meta agora. Confira a internet e tente de novo em alguns minutos.', { status: 502, network: true });
+  }
+  try { data = await response.json(); } catch { data = {}; }
   if (!response.ok || data.error) {
-    const error = new Error('A Meta não concluiu a operação. Verifique permissões, elegibilidade e janela de atendimento.');
-    error.metaCode = data.error?.code;
-    error.status = 502;
+    const error = publicError('A Meta não concluiu a operação. Verifique permissões, elegibilidade e janela de atendimento.', {
+      status: 502, metaCode: data.error?.code, metaSubcode: data.error?.error_subcode, traceId: data.error?.fbtrace_id,
+    });
     throw error;
   }
   return data;
@@ -118,17 +129,37 @@ function registrationPin(phoneId) {
 async function registerPhone(phoneId, token) {
   try { await graph(`${phoneId}/register`, token, { method: 'POST', body: { messaging_product: 'whatsapp', pin: registrationPin(phoneId) } }); }
   catch (err) {
-    const error = new Error('A Meta não ativou este número. Confira se ele recebeu o código de verificação e tente de novo.');
-    error.metaCode = err.metaCode; error.status = 502;
-    throw error;
+    throw publicError('A Meta não ativou este número. Confira se ele recebeu o código de verificação e tente de novo.', { status: 502, metaCode: err.metaCode, metaSubcode: err.metaSubcode, traceId: err.traceId, network: err.network });
   }
 }
-async function syncBusinessApp(phoneId, token) {
-  // Contacts first, then history, as Meta documents. Each type can only be requested once per onboarding.
+const SYNC_WINDOW_MS = 24 * 60 * 60000;
+const syncKey = storeId => `${storeId}:smb_sync`;
+async function syncBusinessApp(phoneId, token, storeId) {
+  // Contacts first, then history, as Meta documents. Each type can only be requested once per onboarding
+  // and only within 24 h, so finished steps are remembered (reset when the store connects again).
+  const id = syncKey(storeId);
+  const saved = await prisma.whatsAppConversation.findUnique({ where: { id } });
+  let progress;
+  try { progress = saved ? JSON.parse(saved.state) : null; } catch { progress = null; }
+  if (!progress || !Number.isFinite(Date.parse(progress.since)) || typeof progress.steps !== 'object') progress = { since: new Date().toISOString(), steps: {} };
+  if (!saved) await prisma.whatsAppConversation.create({ data: { id, storeId, state: JSON.stringify(progress) } }).catch(err => { if (err.code !== 'P2002') throw err; });
+  const persist = () => prisma.whatsAppConversation.upsert({ where: { id }, create: { id, storeId, state: JSON.stringify(progress) }, update: { state: JSON.stringify(progress) } });
+  const results = [];
   for (const syncType of ['smb_app_state_sync', 'history']) {
-    try { await graph(`${phoneId}/smb_app_data`, token, { method: 'POST', body: { messaging_product: 'whatsapp', sync_type: syncType } }); }
-    catch (err) { return { ok: false, step: syncType, metaCode: err.metaCode }; }
+    const previous = progress.steps[syncType];
+    if (['accepted', 'unknown'].includes(previous?.status)) { results.push({ type: syncType, ...previous }); continue; }
+    if (Date.now() - Date.parse(progress.since) > SYNC_WINDOW_MS) { results.push({ type: syncType, status: 'expired' }); continue; }
+    progress.steps[syncType] = { status: 'in_flight', updatedAt: new Date().toISOString() };
+    await persist();
+    try {
+      const response = await graph(`${phoneId}/smb_app_data`, token, { method: 'POST', body: { messaging_product: 'whatsapp', sync_type: syncType } });
+      progress.steps[syncType] = { status: 'accepted', requestId: String(response.request_id || '').slice(0, 200) || null, updatedAt: new Date().toISOString() };
+    } catch (err) {
+      progress.steps[syncType] = { status: err.network ? 'unknown' : 'failed', metaCode: err.metaCode || null, updatedAt: new Date().toISOString() };
+    }
+    await persist();
+    results.push({ type: syncType, ...progress.steps[syncType] });
   }
-  return { ok: true };
+  return { ok: results.every(item => item.status === 'accepted'), expired: results.some(item => item.status === 'expired'), uncertain: results.some(item => item.status === 'unknown'), results };
 }
-module.exports = { config, encrypt, decrypt, connection, graph, send, normalizePhone, ensureTemplates, sendOrderUpdate, ORDER_TEMPLATE, registerPhone, syncBusinessApp, registrationPin };
+module.exports = { config, encrypt, decrypt, connection, graph, send, normalizePhone, ensureTemplates, sendOrderUpdate, ORDER_TEMPLATE, registerPhone, syncBusinessApp, registrationPin, publicError };

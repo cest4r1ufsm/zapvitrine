@@ -112,7 +112,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
       if (!mounted.current) return;
       setConfig(prev => ({ ...prev, connection: result.connection }));
       setSyncPending(false);
-      setNotice('Contatos sincronizados.');
+      setNotice('Pedido de sincronização enviado para a Meta. Seus contatos e conversas podem levar alguns minutos para aparecer.');
     } catch (err) { if (mounted.current) setError(err.message); }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -142,7 +142,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
     </> : connection?.connected ? <>
       <p className="official-wa-connected">Conectado</p>
       <p className="official-wa-account">{connection.verifiedName}<br />{connection.displayPhoneNumber}</p>
-      <p>O robô responde seus clientes neste número. Você continua usando o WhatsApp Business normalmente.</p>
+      <p>O robô está ligado e responde seus clientes neste número. Você continua usando o WhatsApp Business normalmente.</p>
       {connection.lastError && <p role="alert">{connection.lastError}</p>}
       {(syncPending || /sincroniz/i.test(connection.lastError || '')) && <button className="btn btn-primary official-wa-main" type="button" disabled={busy} onClick={sync}>{busy ? 'Sincronizando...' : 'Sincronizar agora'}</button>}
       <p className="official-wa-help">Avisos de horário enviados depois de 24 horas da última mensagem do cliente são cobrados pela Meta. Para eles funcionarem, cadastre um cartão na <a href={META_BILLING_URL} target="_blank" rel="noreferrer">Meta</a>.</p>

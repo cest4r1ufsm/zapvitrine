@@ -51,8 +51,37 @@ async function handleAccountUpdate(entry, value) {
   if (!/^\d+$/.test(wabaId)) return;
   if (ACCOUNT_LOST[value.event]) {
     await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { botEnabled: false, officialStatus: 'reauthorization_required', officialLastError: ACCOUNT_LOST[value.event] } });
+  } else if (value.event === 'ACCOUNT_OFFBOARDED') {
+    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { botEnabled: false, officialStatus: 'offboarded_waiting_reconnect', officialLastError: 'O WhatsApp trocou de aparelho ou foi registrado de novo. Abra o WhatsApp Business e confirme a reconexão da plataforma.' } });
+  } else if (value.event === 'ACCOUNT_RECONNECTED') {
+    const stores = await prisma.store.findMany({ where: { officialWabaId: wabaId } });
+    for (const store of stores) {
+      const expired = store.officialTokenExpiresAt && store.officialTokenExpiresAt.getTime() <= Date.now();
+      await prisma.store.update({ where: { id: store.id }, data: expired
+        ? { botEnabled: false, officialStatus: 'reauthorization_required', officialLastError: 'A Meta reconectou o número, mas a autorização expirou. Conecte novamente.' }
+        : { botEnabled: true, officialStatus: 'connected', officialLastError: null } });
+    }
   } else if (value.event === 'DISABLED_UPDATE' && value.ban_info?.waba_ban_state === 'DISABLE') {
-    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { officialLastError: 'A Meta bloqueou esta conta do WhatsApp. Veja os avisos no Gerenciador do WhatsApp.' } });
+    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { botEnabled: false, officialStatus: 'blocked', officialLastError: 'A Meta bloqueou esta conta do WhatsApp. Veja os avisos no Gerenciador do WhatsApp.' } });
+  } else if (value.event === 'ACCOUNT_RESTRICTION') {
+    await prisma.store.updateMany({ where: { officialWabaId: wabaId }, data: { officialLastError: 'A Meta limitou esta conta do WhatsApp. Algumas mensagens podem não sair. Veja os avisos no Gerenciador do WhatsApp.' } });
+  }
+}
+
+async function markSyncWebhook(entry, field, value) {
+  const wabaId = String(entry.id || '');
+  if (!/^\d+$/.test(wabaId)) return;
+  const stores = await prisma.store.findMany({ where: { officialWabaId: wabaId }, select: { id: true } });
+  const step = field === 'smb_app_state_sync' ? 'smb_app_state_sync' : 'history';
+  const historyNotShared = step === 'history' && (value.errors || []).some(error => Number(error.code) === 2593109);
+  for (const store of stores) {
+    const id = `${store.id}:smb_sync`;
+    const saved = await prisma.whatsAppConversation.findUnique({ where: { id } });
+    let progress;
+    try { progress = saved ? JSON.parse(saved.state) : null; } catch { progress = null; }
+    if (!progress || typeof progress.steps !== 'object') progress = { since: new Date().toISOString(), steps: {} };
+    progress.steps[step] = { ...progress.steps[step], status: historyNotShared ? 'completed_without_history' : 'completed', webhookAt: new Date().toISOString() };
+    await prisma.whatsAppConversation.upsert({ where: { id }, create: { id, storeId: store.id, state: JSON.stringify(progress) }, update: { state: JSON.stringify(progress) } });
   }
 }
 
@@ -105,6 +134,7 @@ router.post('/meta', async (req, res) => {
   try {
     for (const entry of req.body?.entry || []) for (const change of entry.changes || []) {
       if (change.field === 'account_update') { await handleAccountUpdate(entry, change.value || {}); continue; }
+      if (['history', 'smb_app_state_sync'].includes(change.field)) { await markSyncWebhook(entry, change.field, change.value || {}); continue; }
       if (change.field && !['messages', 'smb_message_echoes'].includes(change.field)) continue;
       const value = change.value || {};
       const phoneId = value.metadata?.phone_number_id;
@@ -156,6 +186,8 @@ async function processMessage(store, message) {
   if (!/^\d{8,15}$/.test(message.from || '')) return;
   if (!store.active || !store.botEnabled) return;
   if (!require('../middleware/premium').isEligible(store)) return;
+  // Reactions, system notices and content the API cannot show (e.g. coexistence 131060) are left to the owner; no auto-reply.
+  if (['reaction', 'system', 'unsupported'].includes(message.type)) return;
   if (!['text', 'interactive', 'button'].includes(message.type)) {
     await sendWhatsAppMessage(store, message.from, { type: 'text', text: { body: 'Por enquanto consigo atender por texto. Digite sua mensagem ou escolha uma opção do menu.' } });
     return;
