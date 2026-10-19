@@ -9,7 +9,7 @@ const prisma = require('../src/lib/prisma');
 const service = require('../src/services/officialWhatsApp');
 const webhook = require('../src/routes/webhook');
 const realFetch = global.fetch;
-let tokenWaba = '777', metaFail = false, sent = 0, tokenExpiresAt = 0, dataAccessExpiresAt = 0, lastSentBody;
+let tokenWaba = '777', metaFail = false, sent = 0, tokenExpiresAt = 0, dataAccessExpiresAt = 0, lastSentBody, templateMissing = false, templatesCreated = 0;
 global.fetch = async (url, options) => {
   if (!String(url).includes('graph.facebook.com')) return realFetch(url, options);
   if (metaFail) return { ok: false, json: async () => ({ error: { code: 190 } }) };
@@ -17,7 +17,12 @@ global.fetch = async (url, options) => {
   if (String(url).includes('oauth/access_token')) data = { access_token: 'secret-token' };
   else if (String(url).includes('debug_token')) data = { data: { expires_at: tokenExpiresAt, data_access_expires_at: dataAccessExpiresAt, is_valid: true, app_id: '123456', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'], granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: [tokenWaba] }, { scope: 'whatsapp_business_messaging', target_ids: [tokenWaba] }] } };
   else if (String(url).includes('phone_numbers')) data = { data: [{ id: '888', display_phone_number: '+55 11 99999-0000', verified_name: 'Teste' }] };
-  else if (String(url).endsWith('/messages')) { lastSentBody = JSON.parse(options.body); sent++; data = { messages: [{ id: `out-${sent}` }] }; }
+  else if (String(url).endsWith('/message_templates')) { templatesCreated++; data = { id: 'tpl', status: 'PENDING' }; }
+  else if (String(url).endsWith('/messages')) {
+    const body = JSON.parse(options.body);
+    if (templateMissing && body.type === 'template') return { ok: false, json: async () => ({ error: { code: 132001 } }) };
+    lastSentBody = body; sent++; data = { messages: [{ id: `out-${sent}` }] };
+  }
   else data = { success: true };
   return { ok: true, json: async () => data };
 };
@@ -78,6 +83,24 @@ async function run() {
     assert.equal(lastSentBody.messaging_product, 'whatsapp');
     assert.equal(service.connection({ ...store, officialTokenExpiresAt: new Date(Date.now() - 60000).toISOString() }).status, 'reauthorization_required');
     const before = sent; await postWebhook(data); await new Promise(r => setTimeout(r, 50)); assert.equal(sent, before, 'redelivery deduplicated');
+    assert.ok(templatesCreated >= 1, 'order template requested on connect');
+    assert.equal(service.normalizePhone('(44) 99755-3688'), '5544997553688', 'Brazilian number without country code');
+    await service.sendOrderUpdate(store, '5511988880000', 'texto livre', ['Ana', 1, 'Corte', 'confirmado']);
+    assert.equal(lastSentBody.type, 'text', 'inside 24 h window sends free text');
+    await service.sendOrderUpdate(store, '11966660000', 'texto livre', ['Ana', 2, 'Corte', 'cancelado']);
+    assert.equal(lastSentBody.type, 'template', 'outside 24 h window sends template');
+    assert.equal(lastSentBody.to, '5511966660000');
+    assert.deepEqual(lastSentBody.template.components[0].parameters.map(p => p.text), ['Ana', '2', 'Corte', 'cancelado']);
+    templateMissing = true; const createdBefore = templatesCreated;
+    await assert.rejects(service.sendOrderUpdate(store, '5511966660000', 'texto', ['Ana', 3, 'Corte', 'concluído']), /aprovação/);
+    assert.equal(templatesCreated, createdBefore + 1, 'missing template is recreated'); templateMissing = false;
+    const echoBefore = sent;
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'smb_message_echoes', value: { metadata: { phone_number_id: '888' }, message_echoes: [{ id: 'echo-1', from: '5511999990000', to: '5511944440000', type: 'text', text: { body: 'deixa comigo' } }] } }] }] });
+    await postWebhook({ entry: [{ id: '777', changes: [{ field: 'messages', value: { metadata: { phone_number_id: '888' }, messages: [{ id: 'wamid-handoff', from: '5511944440000', type: 'text', text: { body: 'oi' } }] } }] }] });
+    const handoffUntil = Date.now() + 3000;
+    while ((await prisma.whatsAppInbox.findUnique({ where: { id: `${store.id}:wamid-handoff` } }))?.status !== 'done' && Date.now() < handoffUntil) await new Promise(r => setTimeout(r, 20));
+    assert.equal((await prisma.whatsAppInbox.findUnique({ where: { id: `${store.id}:wamid-handoff` } })).status, 'done');
+    assert.equal(sent, echoBefore, 'bot stays quiet after the owner replies from the phone');
     await prisma.store.update({ where: { id: store.id }, data: { botEnabled: false } });
     await assert.rejects(service.send(store, '5511988880000', { type: 'text', text: { body: 'teste' } }, { automation: true }), /pausado/);
     await prisma.store.update({ where: { id: store.id }, data: { botEnabled: true } });
