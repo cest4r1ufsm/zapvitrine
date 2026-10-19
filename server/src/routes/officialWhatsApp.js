@@ -74,6 +74,7 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
     const owner = await prisma.store.findFirst({ where: { officialPhoneId: String(phone.id), NOT: { id: store.id } } });
     if (owner) return res.status(409).json({ error: 'Este número já está conectado a outra loja' });
     await official.graph(`${wabaId}/subscribed_apps`, token, { method: 'POST', body: {} });
+    await official.ensureTemplates(wabaId, token);
     await require('../services/whatsapp').stopSession(store.id);
     await prisma.$transaction([
       prisma.whatsAppInbox.updateMany({ where: { storeId: store.id, status: { in: ['pending', 'processing'] } }, data: { status: 'done', lastError: 'Identidade da conexão substituída' } }),
