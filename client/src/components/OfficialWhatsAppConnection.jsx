@@ -9,7 +9,9 @@ const defaultApi = {
   status: () => api.get('/whatsapp/official/status'),
   connect: payload => api.post('/whatsapp/official/connect', payload),
   disconnect: () => api.delete('/whatsapp/official/disconnect'),
+  sync: () => api.post('/whatsapp/official/sync'),
 };
+const META_BILLING_URL = 'https://business.facebook.com/billing_hub/payment_settings';
 
 export default function OfficialWhatsAppConnection({ onStatusChange, compact = false, api: connectionApi = defaultApi }) {
   const [config, setConfig] = useState(null);
@@ -19,6 +21,7 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [needsPlan, setNeedsPlan] = useState(false);
+  const [syncPending, setSyncPending] = useState(false);
   const mounted = useRef(false);
   const sdk = useRef(null);
   const cancel = useRef(null);
@@ -74,14 +77,14 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
     return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
   }, [connectionApi, config?.connection?.connected, busy]);
 
-  const connect = () => {
+  const connect = (businessApp = true) => {
     if (busy || !ready || !config?.state) return;
     if (Date.parse(config.expiresAt) <= Date.now()) { setNotice('Demorou um pouco. Toque no botão de novo.'); void load({ keepMessage: true }); return; }
     const attempt = ++generation.current;
-    setBusy(true); setError(''); setNotice('Termine na janela do Facebook e confirme no WhatsApp Business.');
+    setBusy(true); setError(''); setNotice(businessApp ? 'Termine na janela do Facebook e confirme no WhatsApp Business.' : 'Termine na janela do Facebook. A Meta vai mandar um código para o número novo.');
     const finish = () => { if (mounted.current && generation.current === attempt) setBusy(false); };
     cancel.current = launchMetaSignup({
-      fb: sdk.current, configId: config.configId,
+      fb: sdk.current, configId: config.configId, businessApp,
       onComplete: async payload => {
         if (!mounted.current || generation.current !== attempt) return;
         setNotice('Quase lá. Conferindo...');
@@ -90,7 +93,8 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
           if (!mounted.current || generation.current !== attempt) return;
           setConfig(prev => ({ ...prev, connection: result.connection, state: null }));
           statusHandler.current?.(result.connection);
-          setNotice('Pronto! Seu WhatsApp está conectado.');
+          setSyncPending(Boolean(result.syncPending));
+          setNotice(result.syncPending ? 'Conectado! Falta só sincronizar seus contatos.' : 'Pronto! Seu WhatsApp está conectado.');
           setReady(false);
         } catch (err) { if (mounted.current && generation.current === attempt) { setError(err.message || 'Não foi possível confirmar a conexão.'); setNotice('Toque no botão para tentar de novo.'); void load({ keepMessage: true }); } }
         finally { finish(); }
@@ -98,6 +102,19 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
       onError: err => { if (mounted.current && generation.current === attempt) { setError(err.message); setNotice(''); } finish(); },
       onCancel: () => { if (mounted.current && generation.current === attempt) setNotice('A janela do Facebook foi fechada ou bloqueada. Toque no botão de novo. Se nada abrir, permita janelas (pop-ups) para este site.'); finish(); },
     });
+  };
+
+  const sync = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await connectionApi.sync();
+      if (!mounted.current) return;
+      setConfig(prev => ({ ...prev, connection: result.connection }));
+      setSyncPending(false);
+      setNotice('Contatos sincronizados.');
+    } catch (err) { if (mounted.current) setError(err.message); }
+    finally { if (mounted.current) setBusy(false); }
   };
 
   const disconnect = async () => {
@@ -127,12 +144,16 @@ export default function OfficialWhatsAppConnection({ onStatusChange, compact = f
       <p className="official-wa-account">{connection.verifiedName}<br />{connection.displayPhoneNumber}</p>
       <p>O robô responde seus clientes neste número. Você continua usando o WhatsApp Business normalmente.</p>
       {connection.lastError && <p role="alert">{connection.lastError}</p>}
+      {(syncPending || /sincroniz/i.test(connection.lastError || '')) && <button className="btn btn-primary official-wa-main" type="button" disabled={busy} onClick={sync}>{busy ? 'Sincronizando...' : 'Sincronizar agora'}</button>}
+      <p className="official-wa-help">Avisos de horário enviados depois de 24 horas da última mensagem do cliente são cobrados pela Meta. Para eles funcionarem, cadastre um cartão na <a href={META_BILLING_URL} target="_blank" rel="noreferrer">Meta</a>.</p>
       {config.attention?.failedMessages > 0 && <p role="alert">{config.attention.failedMessages} conversa(s) precisam da sua atenção. Confira no WhatsApp Business.</p>}
       <button className="btn btn-secondary" type="button" disabled={busy} onClick={disconnect}>{busy ? 'Desconectando...' : 'Desconectar'}</button>
     </> : config?.available ? <>
       {connection?.lastError && <p role="alert">{connection.lastError}</p>}
       {!compact && <p>Conecte o número do salão. Ele precisa estar no <strong>WhatsApp Business</strong> (ícone com B).</p>}
-      <button className="btn btn-primary official-wa-main" type="button" disabled={busy || !ready} onClick={connect}>{busy ? 'Aguardando você...' : ready ? 'Conectar meu WhatsApp' : 'Preparando...'}</button>
+      <button className="btn btn-primary official-wa-main" type="button" disabled={busy || !ready} onClick={() => connect(true)}>{busy ? 'Aguardando você...' : ready ? 'Conectar meu WhatsApp' : 'Preparando...'}</button>
+      {!busy && ready && <button type="button" className="official-wa-refresh" onClick={() => connect(false)}>Quero usar um número novo, sem o app no celular</button>}
+      {!busy && <p className="official-wa-help">Deu erro no celular? Tente pelo computador, entrando no Facebook que administra o salão.</p>}
     </> : <p>A conexão com o WhatsApp está em manutenção. Sua agenda funciona normalmente.</p>}
     {notice && <p role="status" className="official-wa-notice">{notice}</p>}
     {!busy && !loading && !needsPlan && !connection?.connected && <button type="button" className="official-wa-refresh" onClick={() => load()}>Não funcionou? Recarregar</button>}
