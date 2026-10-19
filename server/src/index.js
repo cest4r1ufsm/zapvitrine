@@ -72,15 +72,17 @@ app.use(
         scriptSrc: ["'self'", 'https://connect.facebook.net'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         imgSrc: ["'self'", 'data:', 'blob:', ...(process.env.MEDIA_PUBLIC_URL ? [new URL(process.env.MEDIA_PUBLIC_URL).origin] : [])],
-        connectSrc: ["'self'", 'https://www.facebook.com', 'https://graph.facebook.com', 'https://api.mapbox.com', 'https://events.mapbox.com'],
+        connectSrc: ["'self'", 'https://connect.facebook.net', 'https://www.facebook.com', 'https://graph.facebook.com', 'https://api.mapbox.com', 'https://events.mapbox.com'],
         workerSrc: ["'self'", 'blob:'],
-        frameSrc: ['https://www.facebook.com', 'https://web.facebook.com', 'https://www.google.com'],
+        frameSrc: ['https://www.facebook.com', 'https://web.facebook.com', 'https://staticxx.facebook.com', 'https://business.facebook.com', 'https://www.google.com'],
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
       },
     },
     crossOriginResourcePolicy: { policy: 'same-site' },
+    // The Meta signup popup must keep its link to this page to report the result.
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   })
 );
 
