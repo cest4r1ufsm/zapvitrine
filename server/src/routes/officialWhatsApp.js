@@ -50,8 +50,9 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
   if (!store) return res.status(404).json({ error: 'Loja não encontrada' });
   if (!store.active) return res.status(403).json({ error: 'Loja desativada' });
   if (!official.config().available) return res.status(503).json({ error: 'Integração oficial ainda não configurada no servidor' });
-  const { code, state, wabaId, phoneId } = req.body || {};
-  if (typeof code !== 'string' || code.length > 4096 || !code || typeof state !== 'string' || !/^\d+$/.test(wabaId || '') || (phoneId && !/^\d+$/.test(phoneId))) return res.status(400).json({ error: 'Autorização da Meta incompleta' });
+  const { code, state, phoneId, onboarding } = req.body || {};
+  let { wabaId } = req.body || {};
+  if (typeof code !== 'string' || code.length > 4096 || !code || typeof state !== 'string' || (wabaId && !/^\d+$/.test(wabaId)) || (phoneId && !/^\d+$/.test(phoneId))) return res.status(400).json({ error: 'Autorização da Meta incompleta' });
   const claimed = await prisma.whatsAppSignupState.deleteMany({ where: { id: state, storeId: store.id, expiresAt: { gt: new Date() } } });
   if (!claimed.count) return res.status(400).json({ error: 'Autorização expirada ou já utilizada. Inicie novamente.' });
   try {
@@ -66,14 +67,23 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
     const permissions = info?.granular_scopes || [];
     if ((info?.expires_at && Number(info.expires_at) * 1000 <= Date.now()) || (info?.data_access_expires_at && Number(info.data_access_expires_at) * 1000 <= Date.now())) throw new Error('Autorização expirada. Inicie novamente.');
     if (!info?.is_valid || String(info.app_id) !== process.env.META_APP_ID || !['whatsapp_business_management', 'whatsapp_business_messaging'].every(scope => info.scopes?.includes(scope))) throw new Error('Permissões do WhatsApp incompletas');
+    // Without the popup's session message, the only account this authorization covers is the right one.
+    if (!wabaId) {
+      const granted = [...new Set(permissions.filter(p => p.scope === 'whatsapp_business_management').flatMap(p => p.target_ids || []).map(String))];
+      if (granted.length !== 1) throw new Error('Não deu para saber qual WhatsApp você escolheu. Tente de novo.');
+      wabaId = granted[0];
+    }
     const ownsAsset = ['whatsapp_business_management', 'whatsapp_business_messaging'].every(scope => permissions.filter(p => p.scope === scope).flatMap(p => p.target_ids || []).map(String).includes(String(wabaId)));
     if (!ownsAsset) throw new Error('Conta WhatsApp não pertence à autorização recebida');
-    const phones = await official.graph(`${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name&limit=100`, token);
+    const phones = await official.graph(`${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app,platform_type&limit=100`, token);
     const phone = phoneId ? phones.data?.find(p => String(p.id) === String(phoneId)) : phones.data?.length === 1 ? phones.data[0] : null;
     if (!phone) throw new Error('Número não pertence à conta WhatsApp autorizada');
     const owner = await prisma.store.findFirst({ where: { officialPhoneId: String(phone.id), NOT: { id: store.id } } });
     if (owner) return res.status(409).json({ error: 'Este número já está conectado a outra loja' });
     await official.graph(`${wabaId}/subscribed_apps`, token, { method: 'POST', body: {} });
+    // Coexistence numbers are already registered; a brand-new number must be registered for Cloud API.
+    const businessApp = onboarding === 'business_app' || phone.is_on_biz_app === true;
+    if (!businessApp) await official.registerPhone(String(phone.id), token);
     await official.ensureTemplates(wabaId, token);
     await require('../services/whatsapp').stopSession(store.id);
     await prisma.$transaction([
@@ -83,12 +93,22 @@ router.post('/connect', requirePremium, limit, mutationLease, async (req, res) =
     const authorizationDeadlines = [info.expires_at, info.data_access_expires_at].map(Number).filter(value => Number.isFinite(value) && value > 0);
     const tokenExpiresAt = authorizationDeadlines.length ? new Date(Math.min(...authorizationDeadlines) * 1000) : null;
     const updated = await prisma.store.update({ where: { id: store.id }, data: { botEnabled: store.botEnabled, officialPhoneId: String(phone.id), officialWabaId: String(wabaId), officialToken: official.encrypt(token), officialTokenExpiresAt: tokenExpiresAt, officialDisplayPhone: phone.display_phone_number, officialVerifiedName: phone.verified_name, officialStatus: 'connected', officialLastError: null } });
-    res.json({ connection: official.connection(updated) });
+    // Meta allows contacts/history sync only within 24 h of coexistence onboarding.
+    const sync = businessApp ? await official.syncBusinessApp(String(phone.id), token) : { ok: true };
+    const finalStore = sync.ok ? updated : await prisma.store.update({ where: { id: store.id }, data: { officialLastError: 'Conectado. Falta sincronizar seus contatos: toque em "Sincronizar agora".' } });
+    res.json({ connection: official.connection(finalStore), syncPending: !sync.ok });
   } catch (err) {
     const message = err.metaCode ? `Meta recusou a conexão (código ${err.metaCode}). Verifique as permissões e a elegibilidade.` : err.message;
     await prisma.store.update({ where: { id: store.id }, data: { officialLastError: message } });
     res.status(err.status || 400).json({ error: message });
   }
+});
+router.post('/sync', requirePremium, limit, mutationLease, async (req, res) => {
+  const store = await prisma.store.findUnique({ where: { userId: req.user.id } });
+  if (!store?.officialPhoneId || !official.connection(store).connected) return res.status(409).json({ error: 'Conecte o WhatsApp antes de sincronizar.' });
+  const sync = await official.syncBusinessApp(store.officialPhoneId, official.decrypt(store.officialToken));
+  const updated = await prisma.store.update({ where: { id: store.id }, data: { officialLastError: sync.ok ? null : 'A Meta não aceitou a sincronização. Se já passaram 24 horas da conexão, desconecte e conecte de novo.' } });
+  res.status(sync.ok ? 200 : 502).json({ connection: official.connection(updated), syncPending: !sync.ok });
 });
 router.delete('/disconnect', limit, mutationLease, async (req, res) => {
   const store = await prisma.store.findUnique({ where: { userId: req.user.id } });
