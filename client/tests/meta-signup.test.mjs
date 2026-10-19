@@ -4,7 +4,8 @@ import { launchMetaSignup, parseSignupEvent } from '../src/services/metaSignup.j
 
 test('accepts official coexistence completion without phone ID and rejects spoofed origins', () => {
   const payload = { type: 'WA_EMBEDDED_SIGNUP', event: 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING', data: { waba_id: '123' } };
-  assert.deepEqual(parseSignupEvent({ origin: 'https://www.facebook.com', data: JSON.stringify(payload) }), { type: 'finish', wabaId: '123' });
+  assert.deepEqual(parseSignupEvent({ origin: 'https://www.facebook.com', data: JSON.stringify(payload) }), { type: 'finish', wabaId: '123', onboarding: 'business_app' });
+  assert.equal(parseSignupEvent({ origin: 'https://m.facebook.com', data: payload }).type, 'finish', 'mobile Facebook origin accepted');
   for (const origin of ['https://evilfacebook.com', 'https://www.facebook.com.evil.com', 'http://www.facebook.com', 'null']) assert.equal(parseSignupEvent({ origin, data: payload }), null);
   assert.equal(parseSignupEvent({ origin: 'https://www.facebook.com', data: '{' }), null);
 });
@@ -27,7 +28,7 @@ test('OAuth and session callbacks can arrive in either order; completes only onc
     else { sendSession(); callback({ authResponse: { code: 'synthetic-code' } }); }
     sendSession(); callback({ authResponse: { code: 'other-code' } });
     assert.equal(complete, 1);
-    assert.deepEqual(result, { code: 'synthetic-code', wabaId: '123', phoneId: '456' });
+    assert.deepEqual(result, { code: 'synthetic-code', wabaId: '123', phoneId: '456', onboarding: 'cloud_api' });
     cleanup();
   }
   delete globalThis.window;
@@ -59,4 +60,22 @@ test('uses the real SDK at click time, not the temporary object captured while l
   assert.equal(realCalls, 1);
   assert.equal(stubCalls, 0);
   cleanup(); delete globalThis.window;
+});
+
+test('Meta on-screen errors arrive as CANCEL and are shown with the real reason', () => {
+  const parsed = parseSignupEvent({ origin: 'https://www.facebook.com', data: { type: 'WA_EMBEDDED_SIGNUP', event: 'CANCEL', data: { error_message: 'Nome de exibição inválido', session_id: 'abc' } } });
+  assert.deepEqual(parsed, { type: 'error', message: 'Nome de exibição inválido', sessionId: 'abc' });
+  assert.equal(parseSignupEvent({ origin: 'https://www.facebook.com', data: { type: 'WA_EMBEDDED_SIGNUP', event: 'FINISH_ONLY_WABA', data: { waba_id: '1' } } }).type, 'error');
+});
+
+test('a code without the session message still completes, so the server can find the account', async () => {
+  const target = new EventTarget();
+  globalThis.window = target;
+  let callback; let result;
+  launchMetaSignup({ fb: { login(cb) { callback = cb; } }, configId: '1', onComplete(payload) { result = payload; }, onError(error) { throw error; }, onCancel() { throw new Error('cancel'); } });
+  const realSetTimeout = globalThis.setTimeout;
+  callback({ authResponse: { code: 'only-code' } });
+  await new Promise(r => realSetTimeout(r, 8200));
+  assert.deepEqual(result, { code: 'only-code', onboarding: 'business_app' });
+  delete globalThis.window;
 });
