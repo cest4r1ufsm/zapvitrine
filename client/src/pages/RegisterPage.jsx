@@ -55,9 +55,7 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
@@ -69,10 +67,6 @@ export default function RegisterPage() {
 
     if (password.length < 8) {
       setError('A senha deve ter pelo menos 8 caracteres');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('As senhas não coincidem');
       return;
     }
 
@@ -96,12 +90,12 @@ export default function RegisterPage() {
             <img src="/agtgestor-logo.svg" alt="AGTGestor" />
           </Link>
           <span className="auth-eyebrow">Crie sua conta</span>
-          <p>Comece grátis em menos de um minuto</p>
+          <p>7 dias grátis. Sem cartão.</p>
         </div>
 
         <div className="auth-card">
           <h2>Crie sua <em>conta</em></h2>
-          <p className="auth-card-subtitle">Grátis para começar, sem cartão de crédito</p>
+          <p className="auth-card-subtitle">Leva menos de 1 minuto.</p>
 
           {error && <div className="alert alert-error">{error}</div>}
 
@@ -111,7 +105,7 @@ export default function RegisterPage() {
               <input
                 type="text"
                 className="form-input"
-                placeholder="Como quer ser chamado"
+                placeholder="Ex: Ana"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
@@ -120,7 +114,7 @@ export default function RegisterPage() {
             </div>
 
             <div className="form-group">
-              <label>E-mail</label>
+              <label>Seu e-mail</label>
               <input
                 type="email"
                 className="form-input"
@@ -133,12 +127,12 @@ export default function RegisterPage() {
             </div>
 
             <div className="form-group">
-              <label>Senha</label>
+              <label>Crie uma senha</label>
               <div className="input-password-wrapper">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   className="form-input"
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder="Pelo menos 8 letras ou números"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -148,38 +142,12 @@ export default function RegisterPage() {
                   type="button"
                   className="password-toggle"
                   onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
+                  aria-label={showPassword ? 'Esconder senha' : 'Mostrar senha'}
                 >
                   <EyeIcon open={showPassword} />
                 </button>
               </div>
               <PasswordStrength password={password} />
-            </div>
-
-            <div className="form-group">
-              <label>Confirmar senha</label>
-              <div className="input-password-wrapper">
-                <input
-                  type={showConfirm ? 'text' : 'password'}
-                  className={`form-input ${confirmPassword && password !== confirmPassword ? 'input-error' : ''}`}
-                  placeholder="Repita a senha"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowConfirm(!showConfirm)}
-                  tabIndex={-1}
-                >
-                  <EyeIcon open={showConfirm} />
-                </button>
-              </div>
-              {confirmPassword && password !== confirmPassword && (
-                <span className="field-error">As senhas não coincidem</span>
-              )}
             </div>
 
             <button
@@ -192,7 +160,7 @@ export default function RegisterPage() {
                 <span className="btn-loading">
                   <span className="btn-spinner" /> Criando conta...
                 </span>
-              ) : 'Criar Conta Grátis'}
+              ) : 'Criar minha conta'}
             </button>
           </form>
 
