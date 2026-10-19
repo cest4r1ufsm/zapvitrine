@@ -15,24 +15,27 @@ export function parseSignupEvent(event) {
   return { type: 'finish', wabaId, ...(phoneId ? { phoneId } : {}) };
 }
 
+// sdk.js first defines a temporary window.FB and then swaps in the real SDK.
+// Only fbAsyncInit guarantees the real one; a reference taken on script load
+// can be the temporary object, whose login() silently does nothing.
 export function prepareMetaSdk({ appId, graphVersion }) {
+  const init = fb => { fb.init({ appId, version: graphVersion, autoLogAppEvents: false, xfbml: false }); return fb; };
   if (!sdkPromise) {
     sdkPromise = new Promise((resolve, reject) => {
-      if (window.FB) { resolve(window.FB); return; }
+      if (window.FB?.init && window.__agtMetaSdkReady) { resolve(window.FB); return; }
+      const timer = setTimeout(() => { reject(new Error('A Meta demorou para carregar. Verifique sua conexão e tente novamente.')); }, 20000);
+      window.fbAsyncInit = () => { clearTimeout(timer); window.__agtMetaSdkReady = true; resolve(init(window.FB)); };
+      if (document.querySelector('script[data-agt-meta-sdk]')) return;
       const script = document.createElement('script');
       script.src = 'https://connect.facebook.net/pt_BR/sdk.js';
       script.async = true;
       script.crossOrigin = 'anonymous';
-      const timer = setTimeout(() => { script.remove(); reject(new Error('A Meta demorou para carregar. Verifique sua conexão e tente novamente.')); }, 20000);
-      script.onload = () => { clearTimeout(timer); window.FB ? resolve(window.FB) : reject(new Error('Não foi possível carregar a conexão com a Meta.')); };
+      script.dataset.agtMetaSdk = 'true';
       script.onerror = () => { clearTimeout(timer); script.remove(); reject(new Error('Não foi possível acessar a Meta. Verifique a rede ou o bloqueador de conteúdo.')); };
       document.head.appendChild(script);
     }).catch(error => { sdkPromise = undefined; throw error; });
   }
-  return sdkPromise.then(fb => {
-    fb.init({ appId, version: graphVersion, autoLogAppEvents: false, xfbml: false });
-    return fb;
-  });
+  return sdkPromise.then(() => init(window.FB));
 }
 
 // The SDK must be loaded BEFORE the user gesture: awaiting network here blocks mobile popups.
@@ -59,7 +62,9 @@ export function launchMetaSignup({ fb, configId, onComplete, onError, onCancel }
   const timer = setTimeout(() => fail('A confirmação não chegou. Verifique o WhatsApp Business e inicie uma nova tentativa.'), 10 * 60 * 1000);
   window.addEventListener('message', receive);
   try {
-    fb.login(response => {
+    // Always call the live SDK object; see prepareMetaSdk.
+    const sdk = window.__agtMetaSdkReady && window.FB?.login ? window.FB : fb;
+    sdk.login(response => {
       if (finished) return;
       if (!response.authResponse?.code) { cleanup(); onCancel(); return; }
       code = response.authResponse.code;
