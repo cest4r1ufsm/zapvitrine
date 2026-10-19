@@ -44,6 +44,13 @@ function getConvoKey(storeId, phone) {
   return `${storeId}:${phone}`;
 }
 
+const HANDOFF_MS = (Number(process.env.WHATSAPP_HUMAN_HANDOFF_MINUTES) || 120) * 60000;
+const handoffKey = (storeId, phone) => `${storeId}:handoff:${phone}`;
+async function humanIsAttending(storeId, phone) {
+  const handoff = await prisma.whatsAppConversation.findUnique({ where: { id: handoffKey(storeId, phone) }, select: { updatedAt: true } });
+  return !!handoff && Date.now() - handoff.updatedAt.getTime() < HANDOFF_MS;
+}
+
 // WhatsApp Cloud API webhook verification
 router.get('/meta', (req, res) => {
   if (process.env.META_WEBHOOK_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === process.env.META_WEBHOOK_VERIFY_TOKEN) return res.status(200).send(req.query['hub.challenge']);
@@ -85,7 +92,7 @@ router.post('/meta', async (req, res) => {
   if (!verifyMetaSignature(req)) return res.sendStatus(401);
   try {
     for (const entry of req.body?.entry || []) for (const change of entry.changes || []) {
-      if (change.field && change.field !== 'messages') continue;
+      if (change.field && !['messages', 'smb_message_echoes'].includes(change.field)) continue;
       const value = change.value || {};
       const phoneId = value.metadata?.phone_number_id;
       if (!phoneId) continue;
@@ -97,6 +104,13 @@ router.post('/meta', async (req, res) => {
       }
       // Coexistence echoes/history are never passed to the bot (prevents self-replies).
       if (store.officialStatus !== 'connected') continue;
+      // The owner answered from the WhatsApp Business app: the bot stays quiet with that customer for a while.
+      for (const echo of value.message_echoes || []) {
+        const customer = String(echo.to || '').replace(/\D/g, '');
+        if (!/^\d{8,15}$/.test(customer)) continue;
+        const id = handoffKey(store.id, customer);
+        await prisma.whatsAppConversation.upsert({ where: { id }, create: { id, storeId: store.id, state: '{"handoff":true}' }, update: { state: '{"handoff":true}' } });
+      }
       for (const message of value.messages || []) {
         if (message.echo || message.is_echo || !message.id || !/^\d{8,15}$/.test(message.from || '') || message.from === store.officialDisplayPhone?.replace(/\D/g, '')) continue;
         try { await prisma.whatsAppInbox.create({ data: { id: `${store.id}:${message.id}`, storeId: store.id, phone: message.from, payload: JSON.stringify({ ...message, _phoneId: store.officialPhoneId, _wabaId: store.officialWabaId, _connectionKey: crypto.createHash('sha256').update(store.officialToken).digest('hex') }) } }); }
@@ -266,7 +280,7 @@ async function processStoreInbox(storeId, deadline) {
         const message = JSON.parse(event.payload);
         const identityMatches = store?.officialPhoneId === message._phoneId && store?.officialWabaId === message._wabaId && store?.officialToken && crypto.createHash('sha256').update(store.officialToken).digest('hex') === message._connectionKey;
         if (identityMatches && store?.officialStatus !== 'connected') throw new Error('WhatsApp requer nova autorização');
-        if (store?.officialStatus === 'connected' && identityMatches) {
+        if (store?.officialStatus === 'connected' && identityMatches && !await humanIsAttending(event.storeId, event.phone)) {
           await processMessage(store, message);
           if (store._sendFailure) throw store._sendFailure;
         }
