@@ -9,7 +9,7 @@ const prisma = require('../src/lib/prisma');
 const service = require('../src/services/officialWhatsApp');
 const webhook = require('../src/routes/webhook');
 const realFetch = global.fetch;
-let tokenWaba = '777', metaFail = false, sent = 0, tokenExpiresAt = 0, dataAccessExpiresAt = 0, lastSentBody, templateMissing = false, templatesCreated = 0;
+let tokenWaba = '777', metaFail = false, sent = 0, tokenExpiresAt = 0, dataAccessExpiresAt = 0, lastSentBody, templateMissing = false, templatesCreated = 0, registered = 0, syncs = [], syncFails = false;
 global.fetch = async (url, options) => {
   if (!String(url).includes('graph.facebook.com')) return realFetch(url, options);
   if (metaFail) return { ok: false, json: async () => ({ error: { code: 190 } }) };
@@ -18,6 +18,8 @@ global.fetch = async (url, options) => {
   else if (String(url).includes('debug_token')) data = { data: { expires_at: tokenExpiresAt, data_access_expires_at: dataAccessExpiresAt, is_valid: true, app_id: '123456', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'], granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: [tokenWaba] }, { scope: 'whatsapp_business_messaging', target_ids: [tokenWaba] }] } };
   else if (String(url).includes('phone_numbers')) data = { data: [{ id: '888', display_phone_number: '+55 11 99999-0000', verified_name: 'Teste' }] };
   else if (String(url).endsWith('/message_templates')) { templatesCreated++; data = { id: 'tpl', status: 'PENDING' }; }
+  else if (String(url).endsWith('/register')) { registered++; assert.match(JSON.parse(options.body).pin, /^\d{6}$/); data = { success: true }; }
+  else if (String(url).endsWith('/smb_app_data')) { if (syncFails) return { ok: false, json: async () => ({ error: { code: 131000 } }) }; syncs.push(JSON.parse(options.body).sync_type); data = { request_id: 'r' }; }
   else if (String(url).endsWith('/messages')) {
     const body = JSON.parse(options.body);
     if (templateMissing && body.type === 'template') return { ok: false, json: async () => ({ error: { code: 132001 } }) };
@@ -56,6 +58,8 @@ async function run() {
     const fresh = await (await request('/official/config')).json();
     response = await request('/official/connect', 'POST', { code: 'code2', state: fresh.state, wabaId: '777' });
     assert.equal(response.status, 200); assert.equal((await response.json()).connection.phoneId, '888');
+    assert.equal(registered, 1, 'new Cloud API number is registered with a PIN');
+    assert.deepEqual(syncs, [], 'no business app sync for a new number');
     const store = await prisma.store.findUnique({ where: { id: user.store.id } });
     assert.equal(store.officialTokenExpiresAt.getTime(), dataAccessExpiresAt * 1000, 'earlier data access expiry is persisted');
     assert.ok(store.officialToken !== 'secret-token'); assert.equal(service.decrypt(store.officialToken), 'secret-token');
@@ -101,6 +105,22 @@ async function run() {
     while ((await prisma.whatsAppInbox.findUnique({ where: { id: `${store.id}:wamid-handoff` } }))?.status !== 'done' && Date.now() < handoffUntil) await new Promise(r => setTimeout(r, 20));
     assert.equal((await prisma.whatsAppInbox.findUnique({ where: { id: `${store.id}:wamid-handoff` } })).status, 'done');
     assert.equal(sent, echoBefore, 'bot stays quiet after the owner replies from the phone');
+    // Coexistence: no registration, contacts then history are synced right away; code alone finds the account.
+    const coexCfg = await (await request('/official/config')).json();
+    const registeredBefore = registered;
+    response = await request('/official/connect', 'POST', { code: 'code3', state: coexCfg.state, onboarding: 'business_app' });
+    assert.equal(response.status, 200, 'code without session message is enough');
+    assert.equal((await response.json()).syncPending, false);
+    assert.equal(registered, registeredBefore, 'coexistence number is not re-registered');
+    assert.deepEqual(syncs, ['smb_app_state_sync', 'history']);
+    syncFails = true;
+    const failCfg = await (await request('/official/config')).json();
+    response = await request('/official/connect', 'POST', { code: 'code4', state: failCfg.state, wabaId: '777', onboarding: 'business_app' });
+    assert.equal((await response.json()).syncPending, true, 'failed sync is reported, connection kept');
+    syncFails = false;
+    response = await request('/official/sync', 'POST');
+    assert.equal(response.status, 200, 'sync can be retried');
+    Object.assign(store, await prisma.store.findUnique({ where: { id: store.id } }));
     await prisma.store.update({ where: { id: store.id }, data: { botEnabled: false } });
     await assert.rejects(service.send(store, '5511988880000', { type: 'text', text: { body: 'teste' } }, { automation: true }), /pausado/);
     await prisma.store.update({ where: { id: store.id }, data: { botEnabled: true } });
@@ -120,6 +140,11 @@ async function run() {
     await assert.rejects(service.send({ ...reauth, botToken: 'legacy-token', botPhoneId: 'old-phone' }, '5511988880000', { type: 'text', text: { body: 'teste' } }));
     await postWebhook({ entry: [{ id: '777', changes: [{ value: { metadata: { phone_number_id: '888' }, statuses: [{ id: 'out-2', status: 'read' }, { id: 'out-2', status: 'sent' }] } }] }] });
     assert.equal((await prisma.whatsAppDelivery.findUnique({ where: { id: 'out-2' } })).status, 'read');
+    await prisma.store.update({ where: { id: store.id }, data: { officialStatus: 'connected', officialTokenExpiresAt: null, botEnabled: true } });
+    await postWebhook({ entry: [{ id: '5550001', changes: [{ field: 'account_update', value: { event: 'PARTNER_REMOVED', waba_info: { waba_id: '777', owner_business_id: '1' } } }] }] });
+    const removed = await prisma.store.findUnique({ where: { id: store.id } });
+    assert.equal(removed.officialStatus, 'reauthorization_required', 'removal in Meta stops the bot');
+    assert.equal(removed.botEnabled, false);
     response = await request('/official/disconnect', 'DELETE'); assert.equal((await response.json()).connection.connected, false);
     assert.equal((await prisma.store.findUnique({ where: { id: store.id } })).officialToken, null);
     console.log('Official WhatsApp: authorization ownership, one-time state, encryption, secret redaction, signature, batch inbox, deduplication, send failure, delivery status and disconnect passed.');
