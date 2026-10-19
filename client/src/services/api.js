@@ -2,10 +2,11 @@ const isDev = window.location.hostname === 'localhost' || window.location.hostna
 export const API_URL = import.meta.env.VITE_API_URL || (isDev ? 'http://localhost:3001/api' : '/api');
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -27,7 +28,7 @@ export async function request(endpoint, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401) clearAuthState();
-    throw new ApiError(data.error || `Erro ${res.status}`, res.status);
+    throw new ApiError(data.error || `Erro ${res.status}`, res.status, data.code);
   }
   if (data.csrfToken) csrfToken = data.csrfToken;
   return data;
