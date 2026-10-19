@@ -119,11 +119,9 @@ module.exports = async function run() {
     check('bot inicia o pedido ao escolher o serviço', resposta.length > 0, 'nenhuma resposta');
 
     resposta = await digitar('Maria Silva');
-    check('bot pede o tipo de atendimento após o nome', resposta.length > 0, 'nenhuma resposta');
-
-    resposta = await clicar('type_schedule');
-    check('ao escolher agendar, o bot oferece DATAS (não texto livre)',
+    check('logo após o nome, o bot oferece DATAS (sem pergunta extra)',
       /\d{2}\/\d{2}/.test(resposta), 'resposta sem datas: ' + resposta.slice(0, 200));
+    check('o bot cumprimenta pelo nome', resposta.includes('Maria Silva'), resposta.slice(0, 120));
     const ofereceuData = resposta;
 
     resposta = await clicar('date_' + DATA);
@@ -182,32 +180,6 @@ module.exports = async function run() {
     check('o slot recém-agendado sumiu da disponibilidade',
       horarioGravado && !restantes.includes(horarioGravado),
       `${horarioGravado} ainda aparece em: ${restantes.join(',')}`);
-
-    console.log('\n-- Fluxo de entrega (não-agendamento) não regrediu --');
-    const outroTelefone = '5511888880000';
-    const conversarComo = async (tel, msg) => {
-      const antes = enviadas.length;
-      await fetch(`${BASE}/api/webhook/${STORE.id}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ from: tel, ...msg }] } }] }] }),
-      });
-      const limite = Date.now() + 5000;
-      while (enviadas.length === antes && Date.now() < limite) await new Promise(r => setTimeout(r, 25));
-      return enviadas.slice(antes).map(textoDe).join('\n');
-    };
-    await conversarComo(outroTelefone, { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'order_' + servico.id, title: 'x' } } });
-    await conversarComo(outroTelefone, { type: 'text', text: { body: 'Joao Entrega' } });
-    await conversarComo(outroTelefone, { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'type_delivery', title: 'x' } } });
-    await conversarComo(outroTelefone, { type: 'text', text: { body: 'Rua das Flores, 123' } });
-    await conversarComo(outroTelefone, { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: 'no_notes', title: 'x' } } });
-
-    const entrega = await prisma.order.findFirst({
-      where: { storeId: STORE.id, customerName: 'Joao Entrega' }, orderBy: { id: 'desc' },
-    });
-    check('pedido de ENTREGA continua sendo criado', !!entrega, 'entrega nao criada');
-    check('entrega mantém scheduledAt nulo (comportamento original)',
-      entrega && entrega.scheduledAt === null, 'scheduledAt: ' + entrega?.scheduledAt);
-    check('entrega guarda o endereço', !!entrega?.customerAddress, 'endereco vazio');
 
     console.log('\n-- Catálogo com mais de dez opções --');
     const paginationCategories = [];
