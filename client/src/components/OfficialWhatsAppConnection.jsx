@@ -10,7 +10,7 @@ const defaultApi = {
   disconnect: () => api.delete('/whatsapp/official/disconnect'),
 };
 
-export default function OfficialWhatsAppConnection({ onStatusChange, api: connectionApi = defaultApi }) {
+export default function OfficialWhatsAppConnection({ onStatusChange, compact = false, api: connectionApi = defaultApi }) {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
@@ -24,9 +24,10 @@ export default function OfficialWhatsAppConnection({ onStatusChange, api: connec
   const statusHandler = useRef(onStatusChange);
   useEffect(() => { statusHandler.current = onStatusChange; }, [onStatusChange]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ keepMessage = false } = {}) => {
     const id = ++generation.current;
-    setLoading(true); setReady(false); setError('');
+    setLoading(true); setReady(false);
+    if (!keepMessage) setError('');
     try {
       const next = await connectionApi.config();
       if (!mounted.current || id !== generation.current) return;
@@ -69,32 +70,32 @@ export default function OfficialWhatsAppConnection({ onStatusChange, api: connec
 
   const connect = () => {
     if (busy || !ready || !config?.state) return;
-    if (Date.parse(config.expiresAt) <= Date.now()) { setNotice('A preparação expirou. Atualize para iniciar uma nova conexão.'); void load(); return; }
+    if (Date.parse(config.expiresAt) <= Date.now()) { setNotice('Demorou um pouco. Toque no botão de novo.'); void load({ keepMessage: true }); return; }
     const attempt = ++generation.current;
-    setBusy(true); setError(''); setNotice('Conclua a autorização na Meta e confirme no WhatsApp Business.');
+    setBusy(true); setError(''); setNotice('Termine na janela do Facebook e confirme no WhatsApp Business.');
     const finish = () => { if (mounted.current && generation.current === attempt) setBusy(false); };
     cancel.current = launchMetaSignup({
       fb: sdk.current, configId: config.configId,
       onComplete: async payload => {
         if (!mounted.current || generation.current !== attempt) return;
-        setNotice('Conferindo a conexão...');
+        setNotice('Quase lá. Conferindo...');
         try {
           const result = await connectionApi.connect({ ...payload, state: config.state });
           if (!mounted.current || generation.current !== attempt) return;
           setConfig(prev => ({ ...prev, connection: result.connection, state: null }));
           statusHandler.current?.(result.connection);
-          setNotice('WhatsApp Business conectado. Ative o atendimento automático abaixo quando estiver pronto.');
+          setNotice('Pronto! Seu WhatsApp está conectado.');
           setReady(false);
-        } catch (err) { if (mounted.current && generation.current === attempt) { setError(err.message || 'Não foi possível confirmar a conexão.'); setReady(false); setNotice('Atualize a conexão para tentar novamente.'); } }
+        } catch (err) { if (mounted.current && generation.current === attempt) { setError(err.message || 'Não foi possível confirmar a conexão.'); setNotice('Toque no botão para tentar de novo.'); void load({ keepMessage: true }); } }
         finally { finish(); }
       },
       onError: err => { if (mounted.current && generation.current === attempt) { setError(err.message); setNotice(''); } finish(); },
-      onCancel: () => { if (mounted.current && generation.current === attempt) setNotice('Conexão cancelada. Você pode tentar novamente.'); finish(); },
+      onCancel: () => { if (mounted.current && generation.current === attempt) setNotice('A janela foi fechada. Toque no botão para tentar de novo.'); finish(); },
     });
   };
 
   const disconnect = async () => {
-    if (busy || !window.confirm('Desconectar a integração do AgenteGestor? O atendimento automático será pausado.')) return;
+    if (busy || !window.confirm('Desligar o robô deste WhatsApp? Ele para de responder seus clientes.')) return;
     const attempt = ++generation.current;
     setBusy(true); setError('');
     try {
@@ -102,32 +103,30 @@ export default function OfficialWhatsAppConnection({ onStatusChange, api: connec
       if (!mounted.current || generation.current !== attempt) return;
       setConfig(prev => ({ ...prev, connection: result.connection }));
       statusHandler.current?.(result.connection);
-      setNotice('Integração desconectada do AgenteGestor.');
+      setNotice('WhatsApp desconectado. O robô parou.');
       await load();
     } catch (err) { if (mounted.current) setError(err.message); }
     finally { if (mounted.current) setBusy(false); }
   };
 
   const connection = config?.connection;
-  return <section className="official-wa" aria-label="Conexão oficial do WhatsApp Business" aria-busy={loading || busy}>
-    <h4>WhatsApp Business</h4>
+  return <section className={`official-wa${compact ? ' is-compact' : ''}`} aria-label="Conexão do WhatsApp" aria-busy={loading || busy}>
+    {!compact && <h4>WhatsApp do salão</h4>}
     {error && <p className="alert alert-error" role="alert">{error}</p>}
-    {loading ? <p role="status">Preparando a conexão...</p> : connection?.connected ? <>
-      <p className="official-wa-connected">Conexão oficial ativa</p>
+    {loading ? <p role="status">Preparando...</p> : connection?.connected ? <>
+      <p className="official-wa-connected">Conectado</p>
       <p className="official-wa-account">{connection.verifiedName}<br />{connection.displayPhoneNumber}</p>
-      <p>Seu número continua no WhatsApp Business. Configure o atendimento automático abaixo.</p>
+      <p>O robô responde seus clientes neste número. Você continua usando o WhatsApp Business normalmente.</p>
       {connection.lastError && <p role="alert">{connection.lastError}</p>}
-      {config.attention?.failedMessages > 0 && <p role="alert">{config.attention.failedMessages} atendimento(s) precisam de conferência. Verifique as conversas no WhatsApp Business antes de repetir uma ação.</p>}
-      <button className="btn btn-secondary" type="button" disabled={busy} onClick={disconnect}>{busy ? 'Desconectando...' : 'Desconectar integração'}</button>
+      {config.attention?.failedMessages > 0 && <p role="alert">{config.attention.failedMessages} conversa(s) precisam da sua atenção. Confira no WhatsApp Business.</p>}
+      <button className="btn btn-secondary" type="button" disabled={busy} onClick={disconnect}>{busy ? 'Desconectando...' : 'Desconectar'}</button>
     </> : config?.available ? <>
       {connection?.lastError && <p role="alert">{connection.lastError}</p>}
-      <p>Conecte o número que já usa no WhatsApp Business pela autorização da Meta.</p>
-      <ol><li>Entre na conta que administra seu negócio.</li><li>Selecione seu WhatsApp Business.</li><li>Confirme a conexão no aplicativo.</li></ol>
-      <button className="btn btn-primary" type="button" disabled={busy || !ready} onClick={connect}>{busy ? 'Aguardando confirmação...' : ready ? 'Conectar WhatsApp Business' : 'Preparando conexão...'}</button>
-      <p className="official-wa-help">A Meta verifica a elegibilidade do número. Este método exige WhatsApp Business.</p>
-    </> : <p>A conexão oficial ainda está sendo habilitada pelo AgenteGestor. Sua agenda continua disponível.</p>}
-    {notice && <p role="status">{notice}</p>}
-    {!busy && !loading && <button type="button" className="official-wa-refresh" onClick={load}>Atualizar conexão</button>}
-    {busy && <button type="button" className="official-wa-refresh" onClick={() => { cancel.current?.(); generation.current++; setBusy(false); setReady(false); setNotice('Tentativa encerrada aqui. Atualize para tentar novamente.'); }}>Encerrar espera</button>}
+      {!compact && <p>Conecte o número do salão. Ele precisa estar no <strong>WhatsApp Business</strong> (ícone com B).</p>}
+      <button className="btn btn-primary official-wa-main" type="button" disabled={busy || !ready} onClick={connect}>{busy ? 'Aguardando você...' : ready ? 'Conectar meu WhatsApp' : 'Preparando...'}</button>
+    </> : <p>A conexão com o WhatsApp está em manutenção. Sua agenda funciona normalmente.</p>}
+    {notice && <p role="status" className="official-wa-notice">{notice}</p>}
+    {!busy && !loading && !connection?.connected && <button type="button" className="official-wa-refresh" onClick={() => load()}>Não funcionou? Recarregar</button>}
+    {busy && <button type="button" className="official-wa-refresh" onClick={() => { cancel.current?.(); generation.current++; setBusy(false); setNotice('Tudo bem. Toque no botão quando quiser tentar de novo.'); void load({ keepMessage: true }); }}>Cancelar</button>}
   </section>;
 }
