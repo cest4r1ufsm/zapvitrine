@@ -52,7 +52,7 @@ async function send(store, to, payload, { automation = false } = {}) {
   if (!phoneId || !token) throw new Error('WhatsApp oficial desconectado');
   // Do not turn a LID/JID or arbitrary text into a different customer's number.
   if (typeof to !== 'string' || !/^\+?[\d\s().-]+$/.test(to.trim())) throw new Error('Telefone do cliente inválido');
-  const phone = to.replace(/\D/g, '');
+  const phone = normalizePhone(to);
   if (!/^\d{8,15}$/.test(phone)) throw new Error('Telefone do cliente inválido');
   if (official && !connection(store).connected) throw new Error('Autorização expirada. Conecte novamente.');
   let result;
@@ -66,4 +66,48 @@ async function send(store, to, payload, { automation = false } = {}) {
   if (official) await prisma.whatsAppDelivery.upsert({ where: { id }, create: { id, storeId: store.id, phone }, update: {} });
   return { accepted: true, id, status: 'accepted' };
 }
-module.exports = { config, encrypt, decrypt, connection, graph, send };
+// Brazilian numbers typed without country code (DDD + number) would otherwise be read as another country.
+function normalizePhone(value) {
+  const digits = String(value).replace(/\D/g, '');
+  return /^\d{10,11}$/.test(digits) ? `55${digits}` : digits;
+}
+
+// Free text is only delivered inside 24 h of the customer's last message; afterwards Meta requires an approved template.
+const ORDER_TEMPLATE = {
+  name: 'agtgestor_atualizacao_pedido',
+  language: 'pt_BR',
+  category: 'UTILITY',
+  components: [{ type: 'BODY', text: 'Olá, {{1}}! Seu pedido #{{2}} de {{3}} foi {{4}} pela loja. Se tiver alguma dúvida, responda esta mensagem.', example: { body_text: [['Maria', '123', 'Corte de cabelo', 'confirmado']] } }],
+};
+const SERVICE_WINDOW_MS = 23.5 * 60 * 60000;
+
+async function ensureTemplates(wabaId, token) {
+  // Creation is idempotent from our side: Meta answers with an error when the name already exists.
+  try { await graph(`${wabaId}/message_templates`, token, { method: 'POST', body: ORDER_TEMPLATE }); return true; }
+  catch { return false; }
+}
+async function insideServiceWindow(storeId, phone) {
+  const local = phone.startsWith('55') ? phone.slice(2) : phone;
+  const last = await prisma.whatsAppInbox.findFirst({ where: { storeId, phone: { in: [phone, local] }, createdAt: { gt: new Date(Date.now() - SERVICE_WINDOW_MS) } }, select: { id: true } });
+  return !!last;
+}
+const templateText = value => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/ {4,}/g, '   ').trim().slice(0, 200) || '-';
+async function sendOrderUpdate(store, to, text, params) {
+  if (!store.officialPhoneId) return send(store, to, { type: 'text', text: { body: text } });
+  const phone = normalizePhone(to);
+  if (await insideServiceWindow(store.id, phone)) {
+    try { return await send(store, to, { type: 'text', text: { body: text } }); }
+    catch (err) { if (err.metaCode !== 131047) throw err; }
+  }
+  const template = { name: ORDER_TEMPLATE.name, language: { code: ORDER_TEMPLATE.language }, components: [{ type: 'body', parameters: params.map(p => ({ type: 'text', text: templateText(p) })) }] };
+  try { return await send(store, to, { type: 'template', template }); }
+  catch (err) {
+    if (![132001, 132000, 132015, 132016].includes(err.metaCode)) throw err;
+    const current = await prisma.store.findUnique({ where: { id: store.id } });
+    if (current?.officialWabaId && current.officialToken) await ensureTemplates(current.officialWabaId, decrypt(current.officialToken));
+    const pending = new Error('Modelo de mensagem aguardando aprovação da Meta. Tente de novo em alguns minutos.');
+    pending.metaCode = err.metaCode;
+    throw pending;
+  }
+}
+module.exports = { config, encrypt, decrypt, connection, graph, send, normalizePhone, ensureTemplates, sendOrderUpdate, ORDER_TEMPLATE };
