@@ -24,7 +24,7 @@ const PROCESS = [
   {
     n: '02',
     t: 'Conecte o WhatsApp',
-    d: 'Um QR Code conecta seu WhatsApp ao chatbot. O robô passa a atender seus clientes 24 horas por dia.',
+    d: 'Você conecta o WhatsApp Business do salão em poucos toques. O robô passa a atender seus clientes 24 horas por dia.',
   },
   {
     n: '03',
@@ -101,7 +101,7 @@ const COST_STEPS = [
 ];
 
 const FAQ = [
-  { q: 'Quanto tempo leva para começar a usar?', a: 'Cinco minutos. Você cria a conta, cadastra seus serviços, conecta o WhatsApp via QR Code e já está pronto. Nada de instalação ou configuração técnica.' },
+  { q: 'Quanto tempo leva para começar a usar?', a: 'Cinco minutos. Você cria a conta, cadastra seus serviços, conecta o WhatsApp Business e já está pronto. Nada de instalação ou configuração técnica.' },
   { q: 'Preciso de cartão de crédito para testar?', a: 'Não. Você tem 7 dias completos para usar tudo sem cadastrar nenhum cartão. Se gostar, ativa a assinatura depois. Se não gostar, simplesmente esquece e nada acontece.' },
   { q: 'O chatbot funciona no meu WhatsApp normal?', a: 'Sim. Você conecta o WhatsApp que já usa hoje. O bot atende sozinho quando você está ocupado e você responde manualmente quando quiser intervir.' },
   { q: 'Meus clientes precisam baixar algum app?', a: 'Não. O cliente acessa pelo link que você compartilha ou conversa direto pelo WhatsApp. Tudo pelo navegador, sem instalação.' },
